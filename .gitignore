@@ -3,5 +3,6 @@ vwl
 *.log
 *-protocol.c
 *-protocol.h
+*config.h
 .ccls-cache
 config.h

@@ -3421,14 +3421,22 @@ view(const Arg *arg)
 		vo_log_name(vo, (char[64]){0}, 64),
 		cursor ? cursor->x : 0.0,
 		cursor ? cursor->y : 0.0);
-	workspace_activate(vo, ws, 1);
 	if (vo->mon) {
 		selmon = vo->mon;
 		selvo = vo;
 		selws = ws;
+	}
+	workspace_activate(vo, ws, 1);
+	if (vo->mon) {
+		/* always update focus when switching to a different vout, even if
+		 * the workspace was already active on that vout */
+		if (vo->ws == ws && vo->mon == selmon)
+			focusclient(focustop_vo(vo), 1);
 		wlr_cursor_warp(cursor, NULL,
 			vo->geom.x + vo->geom.width / 2,
 			vo->geom.y + vo->geom.height / 2);
+		/* trigger focus update after cursor warp */
+		motionnotify(0, NULL, 0, 0, 0, 0);
 	}
 	printstatus();
 }
