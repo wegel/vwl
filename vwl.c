@@ -79,7 +79,8 @@
 #define CLIENT_MON(C)           (CLIENT_VO(C) ? CLIENT_VO(C)->mon : NULL)
 #define MON_FOCUS_VO(M)         current_vout(M)
 #define MON_FOCUS_WS(M)         (current_vout(M) ? current_vout(M)->ws : NULL)
-#define VISIBLEON(C, M)         ((M) && (C)->ws && CLIENT_MON(C) == (M) && MON_FOCUS_WS(M) == (C)->ws)
+#define VISIBLEON(C, M)         ((M) && (C)->ws && CLIENT_MON(C) == (M) \
+                                && CLIENT_VO(C) && CLIENT_VO(C)->ws == (C)->ws)
 #define LENGTH(X)               (sizeof X / sizeof X[0])
 #define END(A)                  ((A) + LENGTH(A))
 #define WORKSPACE_COUNT         256
@@ -424,6 +425,7 @@ static Workspace *workspace_next_on_output(VirtualOutput *vo, Workspace *exclude
 static void workspace_save_state(VirtualOutput *vo);
 static void workspace_sync_from_state(VirtualOutput *vo, Workspace *ws);
 static Client *focustop_vo(VirtualOutput *vo);
+static const char *vo_log_name(VirtualOutput *vo, char *buf, size_t len);
 
 /* variables */
 static pid_t child_pid = -1;
@@ -1330,48 +1332,24 @@ createmon(struct wl_listener *listener, void *data)
 		first_vo = monitor_first_vout(m);
 
 	if (first) {
-		unsigned int workspace_idx = 0;
-		wl_list_for_each(vo, &m->vouts, link) {
-			unsigned int assigned = 0;
-			while (assigned < DEFAULT_WORKSPACES_PER_MON && workspace_idx < WORKSPACE_COUNT) {
-				workspace_attach(vo, &workspaces[workspace_idx++]);
-				assigned++;
-			}
-		}
-		if (workspace_idx < WORKSPACE_COUNT && first_vo) {
-			while (workspace_idx < WORKSPACE_COUNT)
-				workspace_attach(first_vo, &workspaces[workspace_idx++]);
-		}
-		wl_list_for_each(vo, &m->vouts, link)
-			workspace_activate(vo, workspace_first(vo), 0);
+		Workspace *default_ws = &workspaces[DEFAULT_WORKSPACE_ID];
+		if (first_vo && !default_ws->vo)
+			workspace_attach(first_vo, default_ws);
 		if (first_vo)
-			workspace_activate(first_vo, &workspaces[DEFAULT_WORKSPACE_ID], 0);
-		selws = &workspaces[DEFAULT_WORKSPACE_ID];
+			workspace_activate(first_vo, default_ws, 0);
+		selws = default_ws;
 		selvo = first_vo;
 	} else {
 		wl_list_for_each(vo, &m->vouts, link) {
-			unsigned int assigned = 0;
-			Workspace *ws;
-			while (assigned < DEFAULT_WORKSPACES_PER_MON && (ws = workspace_find_unassigned())) {
-				workspace_attach(vo, ws);
-				assigned++;
+			Workspace *first_ws = workspace_first(vo);
+			if (!first_ws) {
+				Workspace *unassigned = workspace_find_unassigned();
+				if (unassigned)
+					workspace_attach(vo, unassigned);
+				first_ws = workspace_first(vo);
 			}
-			if (wl_list_empty(&vo->workspaces)) {
-				Workspace *fallback = selvo ? selvo->ws : NULL;
-				if (!fallback && selmon)
-					fallback = MON_FOCUS_WS(selmon);
-				if (!fallback)
-					fallback = workspace_find_unassigned();
-				if (fallback) {
-					VirtualOutput *old_vo = fallback->vo;
-					workspace_attach(vo, fallback);
-					workspace_activate(vo, fallback, 0);
-					if (old_vo && old_vo != vo)
-						workspace_activate(old_vo, workspace_first(old_vo),
-							old_vo->mon == selmon);
-				}
-			}
-			workspace_activate(vo, workspace_first(vo), 0);
+			if (first_ws)
+				workspace_activate(vo, first_ws, 0);
 		}
 	}
 	if (selmon == m) {
@@ -3411,6 +3389,7 @@ view(const Arg *arg)
 {
 	Workspace *ws;
 	VirtualOutput *vo;
+	VirtualOutput *target = NULL;
 	if (!selmon)
 		return;
 	if (arg->ui >= WORKSPACE_COUNT)
@@ -3419,17 +3398,38 @@ view(const Arg *arg)
 	if (!ws)
 		return;
 	vo = ws->vo;
-	if (!vo && selmon) {
-		vo = current_vout(selmon);
-		if (vo)
-			workspace_attach(vo, ws);
+	if (!vo) {
+		if (cursor) {
+			Monitor *pointer_mon = xytomon(cursor->x, cursor->y);
+			VirtualOutput *pointer_vo = pointer_mon ? monitor_vout_at(pointer_mon, cursor->x, cursor->y) : NULL;
+			if (pointer_vo)
+				target = pointer_vo;
+			else if (pointer_mon)
+				target = current_vout(pointer_mon);
+		}
+		if (!target && selmon)
+			target = current_vout(selmon);
+		if (!target)
+			return;
+		workspace_attach(target, ws);
+		vo = ws->vo;
 	}
 	if (!vo)
 		return;
+	wlr_log(WLR_DEBUG, "view request ws=%u vo=%s pointer=(%.1f,%.1f)",
+		ws->id,
+		vo_log_name(vo, (char[64]){0}, 64),
+		cursor ? cursor->x : 0.0,
+		cursor ? cursor->y : 0.0);
 	workspace_activate(vo, ws, 1);
-	selmon = vo->mon;
-	selvo = vo;
-	selws = ws;
+	if (vo->mon) {
+		selmon = vo->mon;
+		selvo = vo;
+		selws = ws;
+		wlr_cursor_warp(cursor, NULL,
+			vo->geom.x + vo->geom.width / 2,
+			vo->geom.y + vo->geom.height / 2);
+	}
 	printstatus();
 }
 
@@ -3626,6 +3626,29 @@ monitor_update_vout_geometries(Monitor *m, const struct wlr_box *usable_area)
 	}
 }
 
+static const char *
+vo_log_name(VirtualOutput *vo, char *buf, size_t len)
+{
+	const char *mon = "(null)";
+	const char *name = "(unnamed)";
+
+	if (!buf || !len)
+		return "(invalid)";
+
+	if (!vo) {
+		snprintf(buf, len, "(null)");
+		return buf;
+	}
+
+	if (vo->mon && vo->mon->wlr_output)
+		mon = vo->mon->wlr_output->name;
+	if (vo->name[0])
+		name = vo->name;
+
+	snprintf(buf, len, "%s:%s#%u", mon, name, vo->id);
+	return buf;
+}
+
 static VirtualOutput *
 create_virtual_output(Monitor *m, const char *name)
 {
@@ -3650,7 +3673,10 @@ create_virtual_output(Monitor *m, const char *name)
 	vo->name[sizeof(vo->name) - 1] = '\0';
 	strncpy(vo->ltsymbol, vo->lt[vo->sellt]->symbol, LENGTH(vo->ltsymbol));
 	vo->ltsymbol[LENGTH(vo->ltsymbol) - 1] = '\0';
-	wl_list_insert(&m->vouts, &vo->link);
+	if (wl_list_empty(&m->vouts))
+		wl_list_insert(&m->vouts, &vo->link);
+	else
+		wl_list_insert(m->vouts.prev, &vo->link);
 	wl_list_init(&vo->workspaces);
 	if (!m->focus_vout)
 		m->focus_vout = vo;
@@ -3780,6 +3806,7 @@ static void
 workspace_attach(VirtualOutput *vo, Workspace *ws)
 {
 	VirtualOutput *old;
+	char newbuf[64], oldbuf[64];
 	if (!vo || !ws)
 		return;
 	if (ws->vo == vo)
@@ -3792,6 +3819,9 @@ workspace_attach(VirtualOutput *vo, Workspace *ws)
 	}
 	ws->vo = vo;
 	workspace_insert_sorted(vo, ws);
+	wlr_log(WLR_DEBUG, "ws_attach id=%u old=%s new=%s", ws->id,
+		vo_log_name(old, oldbuf, sizeof(oldbuf)),
+		vo_log_name(vo, newbuf, sizeof(newbuf)));
 }
 
 static void
@@ -3799,6 +3829,7 @@ workspace_activate(VirtualOutput *vo, Workspace *ws, int focus_change)
 {
 	Workspace *old;
 	Monitor *m;
+	char vbuf[64];
 	if (!vo)
 		return;
 	m = vo->mon;
@@ -3807,6 +3838,11 @@ workspace_activate(VirtualOutput *vo, Workspace *ws, int focus_change)
 	old = vo->ws;
 	if (old == ws)
 		return;
+	wlr_log(WLR_DEBUG, "ws_activate vo=%s old_ws=%u new_ws=%u focus=%d",
+		vo_log_name(vo, vbuf, sizeof(vbuf)),
+		old ? old->id : 0,
+		ws ? ws->id : 0,
+		focus_change);
 	workspace_save_state(vo);
 	if (ws && ws->vo != vo)
 		workspace_attach(vo, ws);
@@ -3837,10 +3873,14 @@ workspace_move_to_output(Workspace *ws, VirtualOutput *vo)
 	VirtualOutput *old;
 	Workspace *fallback;
 	Monitor *old_mon;
+	char newbuf[64], oldbuf[64];
 	if (!ws || !vo || ws->vo == vo)
 		return;
 	old = ws->vo;
 	old_mon = old ? old->mon : NULL;
+	wlr_log(WLR_DEBUG, "ws_move id=%u from=%s to=%s", ws->id,
+		vo_log_name(old, oldbuf, sizeof(oldbuf)),
+		vo_log_name(vo, newbuf, sizeof(newbuf)));
 	workspace_attach(vo, ws);
 	workspace_activate(vo, ws, 1);
 	if (old) {

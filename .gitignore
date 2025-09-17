@@ -1,5 +1,6 @@
 vwl
 *.o
+*.log
 *-protocol.c
 *-protocol.h
 .ccls-cache
