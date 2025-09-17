@@ -2378,9 +2378,7 @@ monocle(Monitor *m)
 
 	if (!vo)
 		return;
-	area = vo->geom;
-	if (!area.width || !area.height)
-		area = m->w;
+	area = (vo->geom.width && vo->geom.height) ? vo->geom : m->w;
 
 	wl_list_for_each(c, &clients, link) {
 		if (CLIENT_VO(c) != vo || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
@@ -3423,9 +3421,7 @@ tabbed(Monitor *m)
 
 	if (!vo)
 		return;
-	area = vo->geom;
-	if (!area.width || !area.height)
-		area = m->w;
+	area = (vo->geom.width && vo->geom.height) ? vo->geom : m->w;
 
 	wl_list_for_each(c, &clients, link) {
 		if (CLIENT_VO(c) != vo || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
@@ -3457,9 +3453,7 @@ tile(Monitor *m)
 
 	if (!vo)
 		return;
-	area = vo->geom;
-	if (!area.width || !area.height)
-		area = m->w;
+	area = (vo->geom.width && vo->geom.height) ? vo->geom : m->w;
 
 	wl_list_for_each(c, &clients, link)
 		if (CLIENT_VO(c) == vo && VISIBLEON(c, m) && !c->isfloating && !c->isfullscreen)
