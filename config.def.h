@@ -14,6 +14,9 @@ static const float urgentcolor[]           = COLOR(0xff0000ff);
 /* This conforms to the xdg-protocol. Set the alpha to zero to restore the old behavior */
 static const float fullscreen_bg[]         = {0.0f, 0.0f, 0.0f, 1.0f}; /* You can also use glsl colors */
 
+/* Physical cursor continuity */
+static const int enable_physical_cursor_gap_jumps = 1;
+
 /* logging */
 static int log_level = WLR_ERROR;
 
@@ -38,15 +41,24 @@ static const Layout layouts[] = {
 /* (x=-1, y=-1) is reserved as an "autoconfigure" monitor position indicator
  * WARNING: negative values other than (-1, -1) cause problems with Xwayland clients
  * https://gitlab.freedesktop.org/xorg/xserver/-/issues/899
-*/
+ *
+ * The optional phys block specifies physical dimensions and origin in
+ * millimetres. Leave fields at zero (or omit the block) to auto-detect. */
 /* NOTE: ALWAYS add a fallback rule, even if you are completely sure it won't be used */
 static const MonitorRule monrules[] = {
-	/* name       mfact  nmaster scale layout       rotate/reflect                x    y */
+	/* name       mfact  nmaster scale layout       rotate/reflect                x    y    phys */
 	/* example of a HiDPI laptop monitor:
-	{ "eDP-1",    0.5f,  1,      2,    &layouts[0], WL_OUTPUT_TRANSFORM_NORMAL,   -1,  -1 },
+	{ "eDP-1",    0.5f,  1,      2,    &layouts[0], WL_OUTPUT_TRANSFORM_NORMAL,   -1,  -1, { .width_mm = 294.0, .height_mm = 165.0, .size_is_set = 1 } },
 	*/
 	/* defaults */
-	{ NULL,       0.55f, 1,      1,    &layouts[0], WL_OUTPUT_TRANSFORM_NORMAL,   -1,  -1 },
+	{ NULL,       0.55f, 1,      1,    &layouts[0], WL_OUTPUT_TRANSFORM_NORMAL,   -1,  -1, {
+		.width_mm = 0,
+		.height_mm = 0,
+		.x_mm = 0,
+		.y_mm = 0,
+		.size_is_set = 0,
+		.origin_is_set = 0,
+	} },
 };
 
 /*

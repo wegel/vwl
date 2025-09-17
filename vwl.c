@@ -115,6 +115,8 @@ typedef struct {
 } Button;
 
 typedef struct Monitor Monitor;
+typedef struct MonitorPhysical MonitorPhysical;
+typedef struct CursorPhysical CursorPhysical;
 typedef struct Workspace Workspace;
 typedef struct VirtualOutput VirtualOutput;
 typedef struct {
@@ -233,23 +235,43 @@ struct VirtualOutput {
     char ltsymbol[16];
 };
 
+struct MonitorPhysical {
+	double width_mm;
+	double height_mm;
+	double origin_x_mm;
+	double origin_y_mm;
+	double mm_per_px_x;
+	double mm_per_px_y;
+	int width_configured;
+	int height_configured;
+	int origin_configured;
+};
+
 struct Monitor {
-    struct wl_list link;
-    struct wlr_output *wlr_output;
-    struct wlr_scene_output *scene_output;
-    struct wlr_scene_rect *fullscreen_bg; /* See createmon() for info */
-    struct wl_listener frame;
-    struct wl_listener destroy;
-    struct wl_listener request_state;
-    struct wl_listener destroy_lock_surface;
-    struct wlr_session_lock_surface_v1 *lock_surface;
-    struct wlr_box m; /* monitor area, layout-relative */
-    struct wlr_box w; /* window area, layout-relative */
-    struct wl_list layers[4]; /* LayerSurface.link */
-    struct wl_list vouts; /* VirtualOutput.link */
-    VirtualOutput *focus_vout;
-    int gamma_lut_changed;
-    int asleep;
+	struct wl_list link;
+	struct wlr_output *wlr_output;
+	struct wlr_scene_output *scene_output;
+	struct wlr_scene_rect *fullscreen_bg; /* See createmon() for info */
+	struct wl_listener frame;
+	struct wl_listener destroy;
+	struct wl_listener request_state;
+	struct wl_listener destroy_lock_surface;
+	struct wlr_session_lock_surface_v1 *lock_surface;
+	struct wlr_box m; /* monitor area, layout-relative */
+	struct wlr_box w; /* window area, layout-relative */
+	struct wl_list layers[4]; /* LayerSurface.link */
+	struct wl_list vouts; /* VirtualOutput.link */
+	VirtualOutput *focus_vout;
+	int gamma_lut_changed;
+	int asleep;
+	MonitorPhysical phys;
+};
+
+struct CursorPhysical {
+	double x_mm;
+	double y_mm;
+	Monitor *mon;
+	Monitor *last_mon;
 };
 
 typedef struct {
@@ -260,6 +282,14 @@ typedef struct {
 	const Layout *lt;
 	enum wl_output_transform rr;
 	int x, y;
+	struct {
+		double width_mm;
+		double height_mm;
+		double x_mm;
+		double y_mm;
+		int size_is_set;
+		int origin_is_set;
+	} phys;
 } MonitorRule;
 
 typedef struct {
@@ -329,6 +359,9 @@ static void createpopup(struct wl_listener *listener, void *data);
 static void cursorconstrain(struct wlr_pointer_constraint_v1 *constraint);
 static void cursorframe(struct wl_listener *listener, void *data);
 static void cursorwarptohint(void);
+static void cursor_physical_sync(void);
+static void cursor_physical_integrate(double dx, double dy);
+static int cursor_gap_jump(Monitor *origin, double prev_mm_x, double prev_mm_y);
 static void destroydecoration(struct wl_listener *listener, void *data);
 static void destroydragicon(struct wl_listener *listener, void *data);
 static void destroyidleinhibitor(struct wl_listener *listener, void *data);
@@ -365,6 +398,8 @@ static void moveresize(const Arg *arg);
 static void outputmgrapply(struct wl_listener *listener, void *data);
 static void outputmgrapplyortest(struct wlr_output_configuration_v1 *config, int test);
 static void outputmgrtest(struct wl_listener *listener, void *data);
+static void monitor_configure_physical(Monitor *m, const MonitorRule *match);
+static void monitor_update_physical(Monitor *m);
 static void pointerfocus(Client *c, struct wlr_surface *surface,
 		double sx, double sy, uint32_t time);
 static void printstatus(void);
@@ -464,6 +499,7 @@ static struct wlr_pointer_constraint_v1 *active_constraint;
 
 static struct wlr_cursor *cursor;
 static struct wlr_xcursor_manager *cursor_mgr;
+static CursorPhysical cursor_phys;
 
 static struct wlr_scene_rect *root_bg;
 static struct wlr_session_lock_manager_v1 *session_lock_mgr;
@@ -1221,6 +1257,8 @@ createmon(struct wl_listener *listener, void *data)
 		}
 	}
 
+	monitor_configure_physical(m, match);
+
 	/* The mode is a tuple of (width, height, refresh rate), and each
 	 * monitor supports only a specific set of modes. We just pick the
 	 * monitor's preferred mode; a more sophisticated compositor would let
@@ -1478,7 +1516,269 @@ cursorwarptohint(void)
 	if (c && active_constraint->current.cursor_hint.enabled) {
 		wlr_cursor_warp(cursor, NULL, sx + c->geom.x + c->bw, sy + c->geom.y + c->bw);
 		wlr_seat_pointer_warp(active_constraint->seat, sx, sy);
+		cursor_physical_sync();
 	}
+}
+
+static void
+cursor_physical_sync(void)
+{
+	Monitor *m;
+	double rel_x, rel_y;
+	double mm_x, mm_y;
+	double scale_x, scale_y;
+
+	if (!cursor)
+		return;
+
+	m = xytomon(cursor->x, cursor->y);
+	cursor_phys.mon = m;
+
+	if (!m) {
+		return;
+	}
+
+	cursor_phys.last_mon = m;
+	rel_x = cursor->x - m->m.x;
+	rel_y = cursor->y - m->m.y;
+
+	scale_x = (m->phys.mm_per_px_x > 0) ? m->phys.mm_per_px_x : 1.0;
+	scale_y = (m->phys.mm_per_px_y > 0) ? m->phys.mm_per_px_y : 1.0;
+	mm_x = m->phys.origin_x_mm + rel_x * scale_x;
+	mm_y = m->phys.origin_y_mm + rel_y * scale_y;
+
+	cursor_phys.x_mm = mm_x;
+	cursor_phys.y_mm = mm_y;
+}
+
+static void
+cursor_physical_integrate(double dx, double dy)
+{
+	Monitor *basis;
+	double scale_x = 1.0;
+	double scale_y = 1.0;
+
+	basis = cursor_phys.mon ? cursor_phys.mon : cursor_phys.last_mon;
+	if (basis) {
+		if (basis->phys.mm_per_px_x > 0)
+			scale_x = basis->phys.mm_per_px_x;
+		if (basis->phys.mm_per_px_y > 0)
+			scale_y = basis->phys.mm_per_px_y;
+		if (!cursor_phys.last_mon)
+			cursor_phys.last_mon = basis;
+	}
+
+	cursor_phys.x_mm += dx * scale_x;
+	cursor_phys.y_mm += dy * scale_y;
+}
+
+static int
+cursor_gap_jump(Monitor *origin, double prev_mm_x, double prev_mm_y)
+{
+	Monitor *mon;
+	double origin_left_mm, origin_right_mm, origin_top_mm, origin_bottom_mm;
+	double anchor_mm;
+	double best_distance = 1e18;
+	Monitor *best = NULL;
+	int dir = -1;
+	const double tolerance_mm = 0.05;
+	double target_left_mm = 0.0, target_right_mm = 0.0;
+	double target_top_mm = 0.0, target_bottom_mm = 0.0;
+	double scale_x = 1.0, scale_y = 1.0;
+	double margin_x = 0.0, margin_y = 0.0;
+	double new_mm_x, new_mm_y;
+	double rel_mm_x, rel_mm_y;
+	double target_x, target_y;
+	double min_x, max_x, min_y, max_y;
+	double attempt_mm = 0.0;
+
+	if (!origin || origin->phys.width_mm <= 0 || origin->phys.height_mm <= 0)
+		return 0;
+
+	origin_left_mm = origin->phys.origin_x_mm;
+	origin_right_mm = origin_left_mm + origin->phys.width_mm;
+	origin_top_mm = origin->phys.origin_y_mm;
+	origin_bottom_mm = origin_top_mm + origin->phys.height_mm;
+
+	if (cursor_phys.x_mm < origin_left_mm - tolerance_mm)
+		dir = WLR_DIRECTION_LEFT;
+	else if (cursor_phys.x_mm > origin_right_mm + tolerance_mm)
+		dir = WLR_DIRECTION_RIGHT;
+	else if (cursor_phys.y_mm < origin_top_mm - tolerance_mm)
+		dir = WLR_DIRECTION_UP;
+	else if (cursor_phys.y_mm > origin_bottom_mm + tolerance_mm)
+		dir = WLR_DIRECTION_DOWN;
+	else
+		return 0;
+
+	if (prev_mm_x < origin_left_mm - tolerance_mm || prev_mm_x > origin_right_mm + tolerance_mm
+			|| prev_mm_y < origin_top_mm - tolerance_mm || prev_mm_y > origin_bottom_mm + tolerance_mm)
+		return 0;
+
+	anchor_mm = (dir == WLR_DIRECTION_LEFT || dir == WLR_DIRECTION_RIGHT)
+			? cursor_phys.y_mm : cursor_phys.x_mm;
+
+	wlr_log(WLR_DEBUG, "cursor gap check origin=%s dir=%d prev=(%.2f,%.2f) cur=(%.2f,%.2f)",
+			origin->wlr_output ? origin->wlr_output->name : "(null)", dir,
+			prev_mm_x, prev_mm_y, cursor_phys.x_mm, cursor_phys.y_mm);
+
+	switch (dir) {
+	case WLR_DIRECTION_RIGHT:
+		attempt_mm = cursor_phys.x_mm - origin_right_mm;
+		break;
+	case WLR_DIRECTION_LEFT:
+		attempt_mm = origin_left_mm - cursor_phys.x_mm;
+		break;
+	case WLR_DIRECTION_DOWN:
+		attempt_mm = cursor_phys.y_mm - origin_bottom_mm;
+		break;
+	case WLR_DIRECTION_UP:
+		attempt_mm = origin_top_mm - cursor_phys.y_mm;
+		break;
+	}
+
+	if (attempt_mm <= tolerance_mm) {
+		return 0;
+	}
+
+	wl_list_for_each(mon, &mons, link) {
+		double cand_left_mm, cand_right_mm, cand_top_mm, cand_bottom_mm, distance;
+		if (mon == origin || !mon->wlr_output || !mon->wlr_output->enabled)
+			continue;
+		if (mon->phys.width_mm <= 0 || mon->phys.height_mm <= 0)
+			continue;
+
+		cand_left_mm = mon->phys.origin_x_mm;
+		cand_right_mm = cand_left_mm + mon->phys.width_mm;
+		cand_top_mm = mon->phys.origin_y_mm;
+		cand_bottom_mm = cand_top_mm + mon->phys.height_mm;
+
+		switch (dir) {
+		case WLR_DIRECTION_RIGHT:
+			if (cand_left_mm < origin_right_mm)
+				continue;
+			if (anchor_mm < cand_top_mm - tolerance_mm || anchor_mm > cand_bottom_mm + tolerance_mm)
+				continue;
+			distance = cand_left_mm - origin_right_mm;
+			break;
+		case WLR_DIRECTION_LEFT:
+			if (cand_right_mm > origin_left_mm)
+				continue;
+			if (anchor_mm < cand_top_mm - tolerance_mm || anchor_mm > cand_bottom_mm + tolerance_mm)
+				continue;
+			distance = origin_left_mm - cand_right_mm;
+			break;
+		case WLR_DIRECTION_DOWN:
+			if (cand_top_mm < origin_bottom_mm)
+				continue;
+			if (anchor_mm < cand_left_mm - tolerance_mm || anchor_mm > cand_right_mm + tolerance_mm)
+				continue;
+			distance = cand_top_mm - origin_bottom_mm;
+			break;
+		case WLR_DIRECTION_UP:
+			if (cand_bottom_mm > origin_top_mm)
+				continue;
+			if (anchor_mm < cand_left_mm - tolerance_mm || anchor_mm > cand_right_mm + tolerance_mm)
+				continue;
+			distance = origin_top_mm - cand_bottom_mm;
+			break;
+		default:
+			continue;
+		}
+
+		if (distance < -tolerance_mm)
+			continue;
+		if (distance < best_distance) {
+			best_distance = distance;
+			best = mon;
+		}
+	}
+
+	if (!best) {
+		wlr_log(WLR_DEBUG, "cursor gap: no candidate from origin=%s", origin->wlr_output ? origin->wlr_output->name : "(null)");
+		return 0;
+	}
+
+ 	target_left_mm = best->phys.origin_x_mm;
+ 	target_right_mm = target_left_mm + best->phys.width_mm;
+ 	target_top_mm = best->phys.origin_y_mm;
+ 	target_bottom_mm = target_top_mm + best->phys.height_mm;
+ 	scale_x = (best->phys.mm_per_px_x > 0) ? best->phys.mm_per_px_x : 1.0;
+ 	scale_y = (best->phys.mm_per_px_y > 0) ? best->phys.mm_per_px_y : 1.0;
+ 	margin_x = scale_x;
+ 	margin_y = scale_y;
+ 	new_mm_x = cursor_phys.x_mm;
+ 	new_mm_y = cursor_phys.y_mm;
+
+	if (margin_x > best->phys.width_mm / 2)
+		margin_x = best->phys.width_mm / 2;
+	if (margin_y > best->phys.height_mm / 2)
+		margin_y = best->phys.height_mm / 2;
+
+	if (dir == WLR_DIRECTION_RIGHT || dir == WLR_DIRECTION_LEFT) {
+		if (new_mm_y < target_top_mm + margin_y)
+			new_mm_y = target_top_mm + margin_y;
+		if (new_mm_y > target_bottom_mm - margin_y)
+			new_mm_y = target_bottom_mm - margin_y;
+		if (dir == WLR_DIRECTION_RIGHT) {
+			if (new_mm_x < target_left_mm + margin_x)
+				new_mm_x = target_left_mm + margin_x;
+			if (new_mm_x > target_right_mm - margin_x)
+				new_mm_x = target_right_mm - margin_x;
+		} else {
+			if (new_mm_x > target_right_mm - margin_x)
+				new_mm_x = target_right_mm - margin_x;
+			if (new_mm_x < target_left_mm + margin_x)
+				new_mm_x = target_left_mm + margin_x;
+		}
+	} else {
+		if (new_mm_x < target_left_mm + margin_x)
+			new_mm_x = target_left_mm + margin_x;
+		if (new_mm_x > target_right_mm - margin_x)
+			new_mm_x = target_right_mm - margin_x;
+		if (dir == WLR_DIRECTION_DOWN) {
+			if (new_mm_y < target_top_mm + margin_y)
+				new_mm_y = target_top_mm + margin_y;
+			if (new_mm_y > target_bottom_mm - margin_y)
+				new_mm_y = target_bottom_mm - margin_y;
+		} else {
+			if (new_mm_y > target_bottom_mm - margin_y)
+				new_mm_y = target_bottom_mm - margin_y;
+			if (new_mm_y < target_top_mm + margin_y)
+				new_mm_y = target_top_mm + margin_y;
+		}
+	}
+
+	rel_mm_x = new_mm_x - target_left_mm;
+	rel_mm_y = new_mm_y - target_top_mm;
+	target_x = best->m.x + rel_mm_x / scale_x;
+	target_y = best->m.y + rel_mm_y / scale_y;
+	min_x = best->m.x;
+	max_x = best->m.x + best->m.width - 1;
+	min_y = best->m.y;
+	max_y = best->m.y + best->m.height - 1;
+
+	if (target_x < min_x)
+		target_x = min_x;
+	else if (target_x > max_x)
+		target_x = max_x;
+	if (target_y < min_y)
+		target_y = min_y;
+	else if (target_y > max_y)
+		target_y = max_y;
+
+	cursor_phys.x_mm = new_mm_x;
+	cursor_phys.y_mm = new_mm_y;
+	cursor_phys.mon = best;
+	cursor_phys.last_mon = best;
+
+	wlr_log(WLR_DEBUG, "cursor gap jump -> %s mm=(%.2f,%.2f) px=(%.1f,%.1f)",
+			best->wlr_output ? best->wlr_output->name : "(null)", new_mm_x, new_mm_y,
+			target_x, target_y);
+	wlr_cursor_warp(cursor, NULL, target_x, target_y);
+	cursor_physical_sync();
+	motionnotify(0, NULL, 0, 0, 0, 0);
+	return 1;
 }
 
 void
@@ -2125,6 +2425,16 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 	struct wlr_pointer_constraint_v1 *constraint;
 	Monitor *hover_mon;
 	VirtualOutput *hover_vo;
+	Monitor *prev_mon = cursor_phys.mon ? cursor_phys.mon : cursor_phys.last_mon;
+	double prev_mm_x = cursor_phys.x_mm;
+	double prev_mm_y = cursor_phys.y_mm;
+
+	if (!prev_mon && cursor) {
+		cursor_physical_sync();
+		prev_mon = cursor_phys.mon ? cursor_phys.mon : cursor_phys.last_mon;
+		prev_mm_x = cursor_phys.x_mm;
+		prev_mm_y = cursor_phys.y_mm;
+	}
 
 	/* Find the client under the pointer and send the event along. */
 	xytonode(cursor->x, cursor->y, &surface, &c, NULL, &sx, &sy);
@@ -2143,6 +2453,16 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 		wlr_relative_pointer_manager_v1_send_relative_motion(
 				relative_pointer_mgr, seat, (uint64_t)time * 1000,
 				dx, dy, dx_unaccel, dy_unaccel);
+		cursor_physical_integrate(dx, dy);
+
+		if (enable_physical_cursor_gap_jumps
+				&& prev_mon
+				&& cursor_mode == CurNormal
+				&& !seat->drag
+				&& (!active_constraint || active_constraint->type != WLR_POINTER_CONSTRAINT_V1_LOCKED)
+				&& cursor_gap_jump(prev_mon, prev_mm_x, prev_mm_y)) {
+			return;
+		}
 
 		wl_list_for_each(constraint, &pointer_constraints->constraints, link)
 			cursorconstrain(constraint);
@@ -2174,6 +2494,8 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 				hover_mon->focus_vout = hover_vo;
 		}
 
+			cursor_physical_sync();
+
 		/* Update selmon (even while dragging a window) */
 		if (sloppyfocus) {
 			selmon = hover_mon;
@@ -2191,10 +2513,12 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 		/* Move the grabbed client to the new position. */
 		resize(grabc, (struct wlr_box){.x = (int)round(cursor->x) - grabcx, .y = (int)round(cursor->y) - grabcy,
 			.width = grabc->geom.width, .height = grabc->geom.height}, 1);
+		cursor_physical_sync();
 		return;
 	} else if (cursor_mode == CurResize) {
 		resize(grabc, (struct wlr_box){.x = grabc->geom.x, .y = grabc->geom.y,
 			.width = (int)round(cursor->x) - grabc->geom.x, .height = (int)round(cursor->y) - grabc->geom.y}, 1);
+		cursor_physical_sync();
 		return;
 	}
 
@@ -2205,6 +2529,7 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 		wlr_cursor_set_xcursor(cursor, cursor_mgr, "default");
 
 	pointerfocus(c, surface, sx, sy, time);
+	cursor_physical_sync();
 }
 
 void
@@ -2246,6 +2571,7 @@ moveresize(const Arg *arg)
 				grabc->geom.x + grabc->geom.width,
 				grabc->geom.y + grabc->geom.height);
 		wlr_cursor_set_xcursor(cursor, cursor_mgr, "se-resize");
+		cursor_physical_sync();
 		break;
 	}
 }
@@ -2591,6 +2917,7 @@ run(char *startup_cmd)
 	 * monitor when displayed here */
 	wlr_cursor_warp_closest(cursor, NULL, cursor->x, cursor->y);
 	wlr_cursor_set_xcursor(cursor, cursor_mgr, "default");
+	cursor_physical_sync();
 
 	/* Run the Wayland event loop. This does not return until you exit the
 	 * compositor. Starting the backend rigged up all of the necessary event
@@ -3295,21 +3622,24 @@ updatemons(struct wl_listener *listener, void *data)
 	wlr_scene_node_set_position(&locked_bg->node, sgeom.x, sgeom.y);
 	wlr_scene_rect_set_size(locked_bg, sgeom.width, sgeom.height);
 
-	wl_list_for_each(m, &mons, link) {
-		if (!m->wlr_output->enabled)
-			continue;
-		config_head = wlr_output_configuration_head_v1_create(config, m->wlr_output);
+		wl_list_for_each(m, &mons, link) {
+			if (!m->wlr_output->enabled) {
+				continue;
+			}
+			config_head = wlr_output_configuration_head_v1_create(config, m->wlr_output);
 
-		/* Get the effective monitor geometry to use for surfaces */
-		wlr_output_layout_get_box(output_layout, m->wlr_output, &m->m);
-		m->w = m->m;
-		wlr_scene_output_set_position(m->scene_output, m->m.x, m->m.y);
+			/* Get the effective monitor geometry to use for surfaces */
+			wlr_output_layout_get_box(output_layout, m->wlr_output, &m->m);
+			m->w = m->m;
+			wlr_scene_output_set_position(m->scene_output, m->m.x, m->m.y);
 
-		wlr_scene_node_set_position(&m->fullscreen_bg->node, m->m.x, m->m.y);
-		wlr_scene_rect_set_size(m->fullscreen_bg, m->m.width, m->m.height);
+			wlr_scene_node_set_position(&m->fullscreen_bg->node, m->m.x, m->m.y);
+			wlr_scene_rect_set_size(m->fullscreen_bg, m->m.width, m->m.height);
 
-		if (m->lock_surface) {
-			struct wlr_scene_tree *scene_tree = m->lock_surface->surface->data;
+			monitor_update_physical(m);
+
+			if (m->lock_surface) {
+				struct wlr_scene_tree *scene_tree = m->lock_surface->surface->data;
 			wlr_scene_node_set_position(&scene_tree->node, m->m.x, m->m.y);
 			wlr_session_lock_surface_v1_configure(m->lock_surface, m->m.width, m->m.height);
 		}
@@ -3350,14 +3680,15 @@ updatemons(struct wl_listener *listener, void *data)
 		}
 	}
 
-	/* FIXME: figure out why the cursor image is at 0,0 after turning all
-	 * the monitors on.
-	 * Move the cursor image where it used to be. It does not generate a
-	 * wl_pointer.motion event for the clients, it's only the image what it's
-	 * at the wrong position after all. */
-	wlr_cursor_move(cursor, NULL, 0, 0);
+		/* FIXME: figure out why the cursor image is at 0,0 after turning all
+		 * the monitors on.
+		 * Move the cursor image where it used to be. It does not generate a
+		 * wl_pointer.motion event for the clients, it's only the image what it's
+		 * at the wrong position after all. */
+		wlr_cursor_move(cursor, NULL, 0, 0);
+		cursor_physical_sync();
 
-	wlr_output_manager_v1_set_configuration(output_mgr, config);
+		wlr_output_manager_v1_set_configuration(output_mgr, config);
 }
 
 void
@@ -3430,14 +3761,16 @@ view(const Arg *arg)
 	if (vo->mon) {
 		/* always update focus when switching to a different vout, even if
 		 * the workspace was already active on that vout */
-		if (vo->ws == ws && vo->mon == selmon)
-			focusclient(focustop_vo(vo), 1);
-		wlr_cursor_warp(cursor, NULL,
-			vo->geom.x + vo->geom.width / 2,
-			vo->geom.y + vo->geom.height / 2);
-		/* trigger focus update after cursor warp */
-		motionnotify(0, NULL, 0, 0, 0, 0);
-	}
+			if (vo->ws == ws && vo->mon == selmon) {
+				focusclient(focustop_vo(vo), 1);
+			}
+			wlr_cursor_warp(cursor, NULL,
+				vo->geom.x + vo->geom.width / 2,
+				vo->geom.y + vo->geom.height / 2);
+			cursor_physical_sync();
+			/* trigger focus update after cursor warp */
+			motionnotify(0, NULL, 0, 0, 0, 0);
+		}
 	printstatus();
 }
 
@@ -3580,6 +3913,93 @@ monitor_vout_at(Monitor *m, double lx, double ly)
 			return vo;
 	}
 	return current_vout(m);
+}
+
+static void
+monitor_configure_physical(Monitor *m, const MonitorRule *match)
+{
+	double width_mm;
+	double height_mm;
+
+	if (!m || !m->wlr_output)
+		return;
+
+	m->phys = (MonitorPhysical){0};
+
+	width_mm = m->wlr_output->phys_width > 0 ? m->wlr_output->phys_width : 0;
+	height_mm = m->wlr_output->phys_height > 0 ? m->wlr_output->phys_height : 0;
+
+	if (width_mm > 0)
+		m->phys.width_mm = width_mm;
+	if (height_mm > 0)
+		m->phys.height_mm = height_mm;
+
+	if (match) {
+		if (match->phys.size_is_set) {
+			if (match->phys.width_mm > 0) {
+				m->phys.width_mm = match->phys.width_mm;
+				m->phys.width_configured = 1;
+			}
+			if (match->phys.height_mm > 0) {
+				m->phys.height_mm = match->phys.height_mm;
+				m->phys.height_configured = 1;
+			}
+		}
+		if (match->phys.origin_is_set) {
+			m->phys.origin_x_mm = match->phys.x_mm;
+			m->phys.origin_y_mm = match->phys.y_mm;
+			m->phys.origin_configured = 1;
+		}
+	}
+}
+
+static void
+monitor_update_physical(Monitor *m)
+{
+	double width_mm;
+	double height_mm;
+
+	if (!m || !m->wlr_output)
+		return;
+
+	width_mm = m->phys.width_mm;
+	height_mm = m->phys.height_mm;
+
+	if (!m->phys.width_configured) {
+		if (m->wlr_output->phys_width > 0)
+			width_mm = m->wlr_output->phys_width;
+		if (width_mm <= 0 && m->m.width > 0)
+			width_mm = m->m.width;
+	}
+	if (!m->phys.height_configured) {
+		if (m->wlr_output->phys_height > 0)
+			height_mm = m->wlr_output->phys_height;
+		if (height_mm <= 0 && m->m.height > 0)
+			height_mm = m->m.height;
+	}
+
+	m->phys.width_mm = width_mm;
+	m->phys.height_mm = height_mm;
+
+	if (m->m.width > 0 && width_mm > 0)
+		m->phys.mm_per_px_x = width_mm / m->m.width;
+	else
+		m->phys.mm_per_px_x = 0;
+	if (m->m.height > 0 && height_mm > 0)
+		m->phys.mm_per_px_y = height_mm / m->m.height;
+	else
+		m->phys.mm_per_px_y = 0;
+
+	if (!m->phys.origin_configured) {
+		if (m->phys.mm_per_px_x > 0)
+			m->phys.origin_x_mm = m->m.x * m->phys.mm_per_px_x;
+		else
+			m->phys.origin_x_mm = 0;
+		if (m->phys.mm_per_px_y > 0)
+			m->phys.origin_y_mm = m->m.y * m->phys.mm_per_px_y;
+		else
+			m->phys.origin_y_mm = 0;
+	}
 }
 
 static void
