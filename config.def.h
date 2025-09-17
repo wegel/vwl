@@ -49,6 +49,20 @@ static const MonitorRule monrules[] = {
 	{ NULL,       0.55f, 1,      1,    &layouts[0], WL_OUTPUT_TRANSFORM_NORMAL,   -1,  -1 },
 };
 
+/*
+ * Virtual output rules partition a physical monitor into named regions.
+ * Coordinates are expressed in the monitor's pixel space before any transform
+ * is applied. A width/height of 0 expands to the monitor's usable area.
+ *
+ * Example (uncomment to use) – split HDMI-A-1 into left/right halves:
+ * { "HDMI-A-1", "left",  0,   0,  960, 1080, 0.55f, 1, &layouts[0], &layouts[1], WL_OUTPUT_TRANSFORM_NORMAL, 1.0f },
+ * { "HDMI-A-1", "right", 960,  0,  960, 1080, 0.55f, 1, &layouts[0], &layouts[1], WL_OUTPUT_TRANSFORM_NORMAL, 1.0f },
+ */
+static const VirtualOutputRule vorules[] = {
+	/* monitor  name     x    y    w    h    mfact  nmaster  primary layout   secondary layout                 transform                   scale */
+	{ NULL,    NULL,     0,   0,   0,   0,   0.55f, 1,       &layouts[0],     (LENGTH(layouts) > 1) ? &layouts[1] : &layouts[0], WL_OUTPUT_TRANSFORM_NORMAL, 1.0f },
+};
+
 /* keyboard */
 static const struct xkb_rule_names xkb_rules = {
 	/* can specify fields: rules, model, layout, variant, options */

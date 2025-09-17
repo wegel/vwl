@@ -8,6 +8,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -74,7 +75,11 @@
 #define MAX(A, B)               ((A) > (B) ? (A) : (B))
 #define MIN(A, B)               ((A) < (B) ? (A) : (B))
 #define CLEANMASK(mask)         (mask & ~WLR_MODIFIER_CAPS)
-#define VISIBLEON(C, M)         ((M) && (C)->ws && (C)->ws->mon == (M) && (M)->ws == (C)->ws)
+#define CLIENT_VO(C)            ((C)->ws ? (C)->ws->vo : NULL)
+#define CLIENT_MON(C)           (CLIENT_VO(C) ? CLIENT_VO(C)->mon : NULL)
+#define MON_FOCUS_VO(M)         current_vout(M)
+#define MON_FOCUS_WS(M)         (current_vout(M) ? current_vout(M)->ws : NULL)
+#define VISIBLEON(C, M)         ((M) && (C)->ws && CLIENT_MON(C) == (M) && MON_FOCUS_WS(M) == (C)->ws)
 #define LENGTH(X)               (sizeof X / sizeof X[0])
 #define END(A)                  ((A) + LENGTH(A))
 #define WORKSPACE_COUNT         256
@@ -92,6 +97,7 @@
 enum { CurNormal, CurPressed, CurMove, CurResize }; /* cursor */
 enum { XDGShell, LayerShell, X11 }; /* client types */
 enum { LyrBg, LyrBottom, LyrTile, LyrFloat, LyrTop, LyrFS, LyrOverlay, LyrBlock, NUM_LAYERS }; /* scene layers */
+enum { FS_NONE, FS_VIRTUAL, FS_MONITOR }; /* fullscreen modes */
 
 typedef union {
 	int i;
@@ -109,6 +115,7 @@ typedef struct {
 
 typedef struct Monitor Monitor;
 typedef struct Workspace Workspace;
+typedef struct VirtualOutput VirtualOutput;
 typedef struct {
 	/* Must keep this field first */
 	unsigned int type; /* XDGShell or X11* */
@@ -146,6 +153,7 @@ typedef struct {
     unsigned int bw;
     Workspace *ws;
     int isfloating, isurgent, isfullscreen;
+    int fullscreen_mode;
     uint32_t resize; /* configure serial of a pending resize */
 } Client;
 
@@ -201,9 +209,27 @@ typedef struct {
 struct Workspace {
     unsigned int id;
     char name[WORKSPACE_NAME_LEN];
-    struct wl_list link; /* Monitor.workspaces */
-    Monitor *mon;
+    struct wl_list link; /* VirtualOutput.workspaces */
+    VirtualOutput *vo;
     WorkspaceState state;
+};
+
+struct VirtualOutput {
+    unsigned int id;
+    char name[WORKSPACE_NAME_LEN];
+    struct wl_list link; /* Monitor.vouts */
+    Monitor *mon;
+    struct wl_list workspaces;
+    Workspace *ws;
+    struct wlr_box geom;       /* layout-relative geometry */
+    struct wlr_box rule;       /* rule geometry in physical pixels */
+    enum wl_output_transform transform;
+    float scale;
+    float mfact;
+    int nmaster;
+    const Layout *lt[2];
+    unsigned int sellt;
+    char ltsymbol[16];
 };
 
 struct Monitor {
@@ -219,14 +245,9 @@ struct Monitor {
     struct wlr_box m; /* monitor area, layout-relative */
     struct wlr_box w; /* window area, layout-relative */
     struct wl_list layers[4]; /* LayerSurface.link */
-    const Layout *lt[2];
-    unsigned int sellt;
-    Workspace *ws;
-    struct wl_list workspaces;
-    float mfact;
+    struct wl_list vouts; /* VirtualOutput.link */
+    VirtualOutput *focus_vout;
     int gamma_lut_changed;
-    int nmaster;
-    char ltsymbol[16];
     int asleep;
 };
 
@@ -239,6 +260,19 @@ typedef struct {
 	enum wl_output_transform rr;
 	int x, y;
 } MonitorRule;
+
+typedef struct {
+	const char *monitor;
+	const char *name;
+	int32_t x, y;
+	int32_t width, height;
+	float mfact;
+	int nmaster;
+	const Layout *lt_primary;
+	const Layout *lt_secondary;
+	enum wl_output_transform transform;
+	float scale;
+} VirtualOutputRule;
 
 typedef struct {
 	struct wlr_pointer_constraint_v1 *constraint;
@@ -376,13 +410,19 @@ static void xytonode(double x, double y, struct wlr_surface **psurface,
 static void zoom(const Arg *arg);
 static Workspace *workspace_for_id(unsigned int id);
 static Workspace *workspace_find_unassigned(void);
-static void workspace_activate(Monitor *m, Workspace *ws, int focus_change);
-static void workspace_attach(Monitor *m, Workspace *ws);
-static Workspace *workspace_first(Monitor *m);
-static void workspace_move_to_monitor(Workspace *ws, Monitor *m);
-static Workspace *workspace_next_on_monitor(Monitor *m, Workspace *exclude);
-static void workspace_save_state(Monitor *m);
-static void workspace_sync_from_state(Monitor *m, Workspace *ws);
+static VirtualOutput *create_virtual_output(Monitor *m, const char *name);
+static void destroy_virtual_output(VirtualOutput *vo);
+static VirtualOutput *current_vout(Monitor *m);
+static void workspace_activate(VirtualOutput *vo, Workspace *ws, int focus_change);
+static void workspace_attach(VirtualOutput *vo, Workspace *ws);
+static Workspace *workspace_first(VirtualOutput *vo);
+static VirtualOutput *monitor_first_vout(Monitor *m);
+static void workspace_move_to_output(Workspace *ws, VirtualOutput *vo);
+static VirtualOutput *monitor_vout_at(Monitor *m, double lx, double ly);
+static Workspace *workspace_next_on_output(VirtualOutput *vo, Workspace *exclude);
+static void workspace_save_state(VirtualOutput *vo);
+static void workspace_sync_from_state(VirtualOutput *vo, Workspace *ws);
+static Client *focustop_vo(VirtualOutput *vo);
 
 /* variables */
 static pid_t child_pid = -1;
@@ -439,6 +479,7 @@ static struct wl_list mons;
 static Monitor *selmon;
 static Workspace workspaces[WORKSPACE_COUNT];
 static Workspace *selws;
+static VirtualOutput *selvo;
 
 /* global event handlers */
 static struct wl_listener cursor_axis = {.notify = axisnotify};
@@ -541,11 +582,14 @@ applyrules(Client *c)
 	if (workspace_id < WORKSPACE_COUNT)
 		ws = workspace_for_id(workspace_id);
 	if (!ws && mon)
-		ws = mon->ws;
-	if (ws && mon && ws->mon != mon)
-		workspace_move_to_monitor(ws, mon);
+		ws = MON_FOCUS_WS(mon);
+	if (ws && mon && ws->vo && ws->vo->mon != mon) {
+		VirtualOutput *target_vo = current_vout(mon);
+		if (target_vo)
+			workspace_move_to_output(ws, target_vo);
+	}
 	if (!ws && selmon)
-		ws = selmon->ws;
+		ws = MON_FOCUS_WS(selmon);
 	if (!ws)
 		ws = selws;
 	if (!ws)
@@ -557,6 +601,8 @@ void
 arrange(Monitor *m)
 {
 	Client *c;
+	VirtualOutput *vo;
+	VirtualOutput *prev_focus = MON_FOCUS_VO(m);
 
 	if (!m->wlr_output->enabled)
 		return;
@@ -571,24 +617,29 @@ arrange(Monitor *m)
 	wlr_scene_node_set_enabled(&m->fullscreen_bg->node,
 			(c = focustop(m)) && c->isfullscreen);
 
-	strncpy(m->ltsymbol, m->lt[m->sellt]->symbol, LENGTH(m->ltsymbol));
+	wl_list_for_each(vo, &m->vouts, link) {
+		m->focus_vout = vo;
+		strncpy(vo->ltsymbol, vo->lt[vo->sellt]->symbol, LENGTH(vo->ltsymbol));
+		vo->ltsymbol[LENGTH(vo->ltsymbol) - 1] = '\0';
 
-	/* We move all clients (except fullscreen and unmanaged) to LyrTile while
-	 * in floating layout to avoid "real" floating clients be always on top */
-	wl_list_for_each(c, &clients, link) {
-		if (c->mon != m || c->scene->node.parent == layers[LyrFS])
-			continue;
+		/* We move all clients (except fullscreen and unmanaged) to LyrTile while
+		 * in floating layout to avoid "real" floating clients be always on top */
+		wl_list_for_each(c, &clients, link) {
+			if (CLIENT_VO(c) != vo || c->mon != m || c->scene->node.parent == layers[LyrFS])
+				continue;
 
-		wlr_scene_node_reparent(&c->scene->node,
-				(!m->lt[m->sellt]->arrange && c->isfloating)
-						? layers[LyrTile]
-						: (m->lt[m->sellt]->arrange && c->isfloating)
+			wlr_scene_node_reparent(&c->scene->node,
+					(!vo->lt[vo->sellt]->arrange && c->isfloating)
+							? layers[LyrTile]
+							: (vo->lt[vo->sellt]->arrange && c->isfloating)
 								? layers[LyrFloat]
 								: c->scene->node.parent);
-	}
+		}
 
-	if (m->lt[m->sellt]->arrange)
-		m->lt[m->sellt]->arrange(m);
+		if (vo->lt[vo->sellt]->arrange)
+			vo->lt[vo->sellt]->arrange(m);
+	}
+	m->focus_vout = prev_focus ? prev_focus : monitor_first_vout(m);
 	motionnotify(0, NULL, 0, 0, 0, 0);
 	checkidleinhibitor(NULL);
 }
@@ -683,6 +734,15 @@ buttonpress(struct wl_listener *listener, void *data)
 	case WL_POINTER_BUTTON_STATE_PRESSED:
 		cursor_mode = CurPressed;
 		selmon = xytomon(cursor->x, cursor->y);
+		if (selmon) {
+			VirtualOutput *hover_vo = monitor_vout_at(selmon, cursor->x, cursor->y);
+			if (hover_vo) {
+				selmon->focus_vout = hover_vo;
+				selvo = hover_vo;
+				if (hover_vo->ws)
+					selws = hover_vo->ws;
+			}
+		}
 		if (locked)
 			break;
 
@@ -709,8 +769,15 @@ buttonpress(struct wl_listener *listener, void *data)
 			cursor_mode = CurNormal;
 			/* Drop the window off on its new monitor */
 			selmon = xytomon(cursor->x, cursor->y);
-			if (selmon && selmon->ws)
-				setworkspace(grabc, selmon->ws);
+			if (selmon) {
+				VirtualOutput *hover_vo = monitor_vout_at(selmon, cursor->x, cursor->y);
+				if (hover_vo) {
+					selmon->focus_vout = hover_vo;
+					selvo = hover_vo;
+					if (hover_vo->ws)
+						setworkspace(grabc, hover_vo->ws);
+				}
+			}
 			grabc = NULL;
 			return;
 		}
@@ -846,7 +913,9 @@ closemon(Monitor *m)
 	 * move closed monitor's clients to the focused one */
 	Client *c;
 	Workspace *ws, *wtmp;
+	VirtualOutput *vo, *vtmp;
 	Monitor *target;
+	VirtualOutput *target_vo = NULL;
 	int i = 0, nmons = wl_list_length(&mons);
 	if (!nmons) {
 		selmon = NULL;
@@ -860,17 +929,26 @@ closemon(Monitor *m)
 	}
 
 	target = selmon;
-	wl_list_for_each_safe(ws, wtmp, &m->workspaces, link) {
-		if (target) {
-			workspace_attach(target, ws);
-		} else {
-			wl_list_remove(&ws->link);
-			wl_list_init(&ws->link);
-			ws->mon = NULL;
+	selvo = target ? current_vout(target) : NULL;
+	if (target)
+		target_vo = current_vout(target);
+	wl_list_for_each_safe(vo, vtmp, &m->vouts, link) {
+		wl_list_for_each_safe(ws, wtmp, &vo->workspaces, link) {
+			if (target_vo) {
+				workspace_move_to_output(ws, target_vo);
+				/* target_vo may gain focus workspace; keep pointer current */
+				target_vo = current_vout(target);
+			} else {
+				workspace_save_state(vo);
+				wl_list_remove(&ws->link);
+				wl_list_init(&ws->link);
+				ws->vo = NULL;
+			}
 		}
+		destroy_virtual_output(vo);
 	}
-	if (target && !target->ws)
-		workspace_activate(target, workspace_first(target), 0);
+	if (target && target_vo && !target_vo->ws)
+		workspace_activate(target_vo, workspace_first(target_vo), 0);
 
 	wl_list_for_each(c, &clients, link) {
 		if (c->isfloating && c->geom.x > m->m.width)
@@ -1107,10 +1185,13 @@ createmon(struct wl_listener *listener, void *data)
 	/* This event is raised by the backend when a new output (aka a display or
 	 * monitor) becomes available. */
 	struct wlr_output *wlr_output = data;
-	const MonitorRule *r;
-	size_t i;
+	const MonitorRule *r, *match = NULL;
+	size_t i, matched_count;
 	struct wlr_output_state state;
 	Monitor *m;
+	VirtualOutput *vo;
+	VirtualOutput *first_vo;
+	const VirtualOutputRule *matched_rules[LENGTH(vorules)];
 	int first;
 
 	if (!wlr_output_init_render(wlr_output, alloc, drw))
@@ -1118,7 +1199,7 @@ createmon(struct wl_listener *listener, void *data)
 
 	m = wlr_output->data = ecalloc(1, sizeof(*m));
 	m->wlr_output = wlr_output;
-	wl_list_init(&m->workspaces);
+	wl_list_init(&m->vouts);
 
 	for (i = 0; i < LENGTH(m->layers); i++)
 		wl_list_init(&m->layers[i]);
@@ -1129,21 +1210,12 @@ createmon(struct wl_listener *listener, void *data)
 		if (!r->name || strstr(wlr_output->name, r->name)) {
 			m->m.x = r->x;
 			m->m.y = r->y;
-			m->mfact = r->mfact;
-			m->nmaster = r->nmaster;
-			m->lt[0] = r->lt ? r->lt : &layouts[0];
-			m->lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : m->lt[0];
-			m->sellt = 0;
 			wlr_output_state_set_scale(&state, r->scale);
 			wlr_output_state_set_transform(&state, r->rr);
+			match = r;
 			break;
 		}
 	}
-	if (!m->lt[0])
-		m->lt[0] = &layouts[0];
-	if (!m->lt[1])
-		m->lt[1] = m->lt[0];
-	strncpy(m->ltsymbol, m->lt[m->sellt]->symbol, LENGTH(m->ltsymbol));
 
 	/* The mode is a tuple of (width, height, refresh rate), and each
 	 * monitor supports only a specific set of modes. We just pick the
@@ -1189,27 +1261,121 @@ createmon(struct wl_listener *listener, void *data)
 	else
 		wlr_output_layout_add(output_layout, wlr_output, m->m.x, m->m.y);
 
-	if (first) {
-		for (i = 0; i < WORKSPACE_COUNT; i++)
-			workspace_attach(m, &workspaces[i]);
-		workspace_activate(m, &workspaces[DEFAULT_WORKSPACE_ID], 0);
-		selws = &workspaces[DEFAULT_WORKSPACE_ID];
-	} else {
-		unsigned int assigned = 0;
-		Workspace *ws;
-		while (assigned < DEFAULT_WORKSPACES_PER_MON && (ws = workspace_find_unassigned())) {
-			workspace_attach(m, ws);
-			assigned++;
-		}
-		if (wl_list_empty(&m->workspaces)) {
-			Workspace *fallback = (selmon && selmon->ws) ? selmon->ws : (selmon ? workspace_first(selmon) : NULL);
-			if (fallback)
-				workspace_move_to_monitor(fallback, m);
-		}
-		workspace_activate(m, workspace_first(m), 0);
+	matched_count = 0;
+	first_vo = NULL;
+	for (i = 0; i < LENGTH(vorules); i++) {
+		const VirtualOutputRule *vr = &vorules[i];
+		if (!vr->monitor)
+			continue;
+		if (strstr(wlr_output->name, vr->monitor))
+			matched_rules[matched_count++] = vr;
 	}
-	if (selmon == m && m->ws)
-		selws = m->ws;
+	if (!matched_count) {
+		for (i = 0; i < LENGTH(vorules); i++) {
+			const VirtualOutputRule *vr = &vorules[i];
+			if (!vr->monitor)
+				matched_rules[matched_count++] = vr;
+		}
+	}
+	if (!matched_count) {
+		matched_rules[matched_count++] = NULL;
+	}
+
+	first_vo = NULL;
+	for (i = 0; i < matched_count; i++) {
+		const VirtualOutputRule *vr = matched_rules[i];
+		VirtualOutput *new_vo;
+		if (vr) {
+			new_vo = create_virtual_output(m, vr->name);
+			if (match) {
+				new_vo->mfact = match->mfact;
+				new_vo->nmaster = match->nmaster;
+				new_vo->lt[0] = match->lt ? match->lt : new_vo->lt[0];
+				new_vo->lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : new_vo->lt[0];
+			}
+			if (vr->mfact > 0)
+				new_vo->mfact = vr->mfact;
+			if (vr->nmaster > 0)
+				new_vo->nmaster = vr->nmaster;
+			if (vr->lt_primary)
+				new_vo->lt[0] = vr->lt_primary;
+			if (vr->lt_secondary)
+				new_vo->lt[1] = vr->lt_secondary;
+			new_vo->sellt = 0;
+			new_vo->scale = vr->scale > 0 ? vr->scale : 1.f;
+			new_vo->transform = vr->transform;
+			new_vo->rule = (struct wlr_box){
+				.x = vr->x,
+				.y = vr->y,
+				.width = vr->width,
+				.height = vr->height,
+			};
+			strncpy(new_vo->ltsymbol, new_vo->lt[new_vo->sellt]->symbol, LENGTH(new_vo->ltsymbol));
+			new_vo->ltsymbol[LENGTH(new_vo->ltsymbol) - 1] = '\0';
+		} else {
+			new_vo = create_virtual_output(m, NULL);
+			if (match) {
+				new_vo->mfact = match->mfact;
+				new_vo->nmaster = match->nmaster;
+				new_vo->lt[0] = match->lt ? match->lt : new_vo->lt[0];
+				new_vo->lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : new_vo->lt[0];
+			}
+		}
+		if (!first_vo)
+			first_vo = new_vo;
+	}
+	if (!first_vo)
+		first_vo = monitor_first_vout(m);
+
+	if (first) {
+		unsigned int workspace_idx = 0;
+		wl_list_for_each(vo, &m->vouts, link) {
+			unsigned int assigned = 0;
+			while (assigned < DEFAULT_WORKSPACES_PER_MON && workspace_idx < WORKSPACE_COUNT) {
+				workspace_attach(vo, &workspaces[workspace_idx++]);
+				assigned++;
+			}
+		}
+		if (workspace_idx < WORKSPACE_COUNT && first_vo) {
+			while (workspace_idx < WORKSPACE_COUNT)
+				workspace_attach(first_vo, &workspaces[workspace_idx++]);
+		}
+		wl_list_for_each(vo, &m->vouts, link)
+			workspace_activate(vo, workspace_first(vo), 0);
+		if (first_vo)
+			workspace_activate(first_vo, &workspaces[DEFAULT_WORKSPACE_ID], 0);
+		selws = &workspaces[DEFAULT_WORKSPACE_ID];
+		selvo = first_vo;
+	} else {
+		wl_list_for_each(vo, &m->vouts, link) {
+			unsigned int assigned = 0;
+			Workspace *ws;
+			while (assigned < DEFAULT_WORKSPACES_PER_MON && (ws = workspace_find_unassigned())) {
+				workspace_attach(vo, ws);
+				assigned++;
+			}
+			if (wl_list_empty(&vo->workspaces)) {
+				Workspace *fallback = selvo ? selvo->ws : NULL;
+				if (!fallback && selmon)
+					fallback = MON_FOCUS_WS(selmon);
+				if (!fallback)
+					fallback = workspace_find_unassigned();
+				if (fallback) {
+					VirtualOutput *old_vo = fallback->vo;
+					workspace_attach(vo, fallback);
+					workspace_activate(vo, fallback, 0);
+					if (old_vo && old_vo != vo)
+						workspace_activate(old_vo, workspace_first(old_vo),
+							old_vo->mon == selmon);
+				}
+			}
+			workspace_activate(vo, workspace_first(vo), 0);
+		}
+	}
+	if (selmon == m) {
+		selvo = current_vout(m);
+		selws = selvo ? selvo->ws : NULL;
+	}
 	arrange(m);
 	printstatus();
 }
@@ -1526,6 +1692,13 @@ focusclient(Client *c, int lift)
 		wl_list_remove(&c->flink);
 		wl_list_insert(&fstack, &c->flink);
 		selmon = c->mon;
+		selvo = CLIENT_VO(c);
+		if (selvo && selvo->mon != selmon)
+			selvo = current_vout(selmon);
+		if (selvo && selvo->mon == selmon)
+			selws = selvo->ws;
+		if (selmon && selvo)
+			selmon->focus_vout = selvo;
 		c->isurgent = 0;
 
 		/* Don't change border color if there is an exclusive focus or we are
@@ -1580,8 +1753,10 @@ focusmon(const Arg *arg)
 			selmon = dirtomon(arg->i);
 		while (!selmon->wlr_output->enabled && i++ < nmons);
 	}
-	if (selmon && selmon->ws)
-		selws = selmon->ws;
+	if (selmon) {
+		selvo = current_vout(selmon);
+		selws = selvo ? selvo->ws : NULL;
+	}
 	focusclient(focustop(selmon), 1);
 }
 
@@ -1617,19 +1792,19 @@ focusstack(const Arg *arg)
 Client *
 focustop(Monitor *m)
 {
-	Client *c;
-	wl_list_for_each(c, &fstack, flink) {
-		if (VISIBLEON(c, m))
-			return c;
-	}
-	return NULL;
+	return focustop_vo(current_vout(m));
 }
 
 void
 fullscreennotify(struct wl_listener *listener, void *data)
 {
 	Client *c = wl_container_of(listener, c, fullscreen);
-	setfullscreen(c, client_wants_fullscreen(c));
+	if (client_wants_fullscreen(c)) {
+		c->fullscreen_mode = FS_VIRTUAL;
+		setfullscreen(c, 1);
+	} else {
+		setfullscreen(c, 0);
+	}
 }
 
 void
@@ -1877,8 +2052,11 @@ mapnotify(struct wl_listener *listener, void *data)
 	 * we set the same workspace and monitor as its parent.
 	 * If there is no parent, apply rules */
 	if ((p = client_get_parent(c))) {
+		Workspace *target_ws = p->ws;
 		c->isfloating = 1;
-		setworkspace(c, p->ws ? p->ws : (p->mon ? p->mon->ws : NULL));
+		if (!target_ws && p->mon)
+			target_ws = MON_FOCUS_WS(p->mon);
+		setworkspace(c, target_ws);
 	} else {
 		applyrules(c);
 	}
@@ -1915,15 +2093,23 @@ monocle(Monitor *m)
 {
 	Client *c;
 	int n = 0;
+	VirtualOutput *vo = current_vout(m);
+	struct wlr_box area;
+
+	if (!vo)
+		return;
+	area = vo->geom;
+	if (!area.width || !area.height)
+		area = m->w;
 
 	wl_list_for_each(c, &clients, link) {
-		if (!VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
+		if (CLIENT_VO(c) != vo || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
 			continue;
-		resize(c, m->w, 0);
+		resize(c, area, 0);
 		n++;
 	}
 	if (n)
-		snprintf(m->ltsymbol, LENGTH(m->ltsymbol), "[%d]", n);
+		snprintf(vo->ltsymbol, LENGTH(vo->ltsymbol), "[%d]", n);
 	if ((c = focustop(m)))
 		wlr_scene_node_raise_to_top(&c->scene->node);
 }
@@ -1957,6 +2143,8 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 	LayerSurface *l = NULL;
 	struct wlr_surface *surface = NULL;
 	struct wlr_pointer_constraint_v1 *constraint;
+	Monitor *hover_mon;
+	VirtualOutput *hover_vo;
 
 	/* Find the client under the pointer and send the event along. */
 	xytonode(cursor->x, cursor->y, &surface, &c, NULL, &sx, &sy);
@@ -1998,9 +2186,21 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 		wlr_cursor_move(cursor, device, dx, dy);
 		wlr_idle_notifier_v1_notify_activity(idle_notifier, seat);
 
+		hover_mon = xytomon(cursor->x, cursor->y);
+		hover_vo = NULL;
+		if (hover_mon) {
+			hover_vo = monitor_vout_at(hover_mon, cursor->x, cursor->y);
+			if (hover_vo)
+				hover_mon->focus_vout = hover_vo;
+		}
+
 		/* Update selmon (even while dragging a window) */
-		if (sloppyfocus)
-			selmon = xytomon(cursor->x, cursor->y);
+		if (sloppyfocus) {
+			selmon = hover_mon;
+			if (selmon) {
+				selvo = hover_vo ? hover_vo : current_vout(selmon);
+			}
+		}
 	}
 
 	/* Update drag icon's position */
@@ -2181,11 +2381,13 @@ printstatus(void)
 	Monitor *m = NULL;
 	Client *c;
 	Workspace *ws;
-	unsigned int count;
-	int urgent;
+	unsigned int count, vcount;
+	int urgent, vurgent;
+	VirtualOutput *vo, *active_vo;
 
 	wl_list_for_each(m, &mons, link) {
-		ws = m->ws;
+		active_vo = current_vout(m);
+		ws = active_vo ? active_vo->ws : NULL;
 		count = 0;
 		urgent = 0;
 		wl_list_for_each(c, &clients, link) {
@@ -2212,7 +2414,31 @@ printstatus(void)
 			ws ? ws->id : 0, ws ? ws->name : "");
 		printf("%s clients %u\n", m->wlr_output->name, count);
 		printf("%s urgent %d\n", m->wlr_output->name, urgent);
-		printf("%s layout %s\n", m->wlr_output->name, m->ltsymbol);
+		printf("%s layout %s\n", m->wlr_output->name,
+			active_vo ? active_vo->ltsymbol : "");
+
+		wl_list_for_each(vo, &m->vouts, link) {
+			Workspace *vows = vo->ws;
+			vcount = 0;
+			vurgent = 0;
+			wl_list_for_each(c, &clients, link) {
+				if (c->ws != vows)
+					continue;
+				vcount++;
+				if (c->isurgent)
+					vurgent = 1;
+			}
+			printf("%s.vo%u name %s\n", m->wlr_output->name, vo->id,
+				vo->name);
+			printf("%s.vo%u active %u\n", m->wlr_output->name, vo->id,
+				vo == active_vo);
+			printf("%s.vo%u workspace %u %s\n", m->wlr_output->name, vo->id,
+				vows ? vows->id : 0, vows ? vows->name : "");
+			printf("%s.vo%u clients %u\n", m->wlr_output->name, vo->id, vcount);
+			printf("%s.vo%u urgent %d\n", m->wlr_output->name, vo->id, vurgent);
+			printf("%s.vo%u layout %s\n", m->wlr_output->name, vo->id,
+				vo->ltsymbol);
+		}
 	}
 	fflush(stdout);
 }
@@ -2299,13 +2525,16 @@ requestmonstate(struct wl_listener *listener, void *data)
 void
 resize(Client *c, struct wlr_box geo, int interact)
 {
+	struct wlr_box limit;
 	struct wlr_box *bbox;
+	VirtualOutput *vo = CLIENT_VO(c);
 	struct wlr_box clip;
 
 	if (!c->mon || !client_surface(c)->mapped)
 		return;
 
-	bbox = interact ? &sgeom : &c->mon->w;
+	limit = (vo && vo->geom.width && vo->geom.height) ? vo->geom : c->mon->w;
+	bbox = interact ? &sgeom : &limit;
 
 	client_set_bounds(c, geo.width, geo.height);
 	c->geom = geo;
@@ -2428,9 +2657,10 @@ void
 setfloating(Client *c, int floating)
 {
 	Client *p = client_get_parent(c);
+	VirtualOutput *vo = CLIENT_VO(c);
 	c->isfloating = floating;
 	/* If in floating layout do not change the client's layer */
-	if (!c->mon || !client_surface(c)->mapped || !c->mon->lt[c->mon->sellt]->arrange)
+	if (!vo || !client_surface(c)->mapped || !vo->lt[vo->sellt]->arrange)
 		return;
 	wlr_scene_node_reparent(&c->scene->node, layers[c->isfullscreen ||
 			(p && p->isfullscreen) ? LyrFS
@@ -2442,6 +2672,8 @@ setfloating(Client *c, int floating)
 void
 setfullscreen(Client *c, int fullscreen)
 {
+	VirtualOutput *vo;
+	struct wlr_box target;
 	c->isfullscreen = fullscreen;
 	if (!c->mon || !client_surface(c)->mapped)
 		return;
@@ -2452,10 +2684,17 @@ setfullscreen(Client *c, int fullscreen)
 
 	if (fullscreen) {
 		c->prev = c->geom;
-		resize(c, c->mon->m, 0);
+		vo = CLIENT_VO(c);
+		if (c->fullscreen_mode == FS_NONE)
+			c->fullscreen_mode = FS_VIRTUAL;
+		target = c->mon->m;
+		if (c->fullscreen_mode == FS_VIRTUAL && vo && vo->geom.width && vo->geom.height)
+			target = vo->geom;
+		resize(c, target, 0);
 	} else {
 		/* restore previous size instead of arrange for floating windows since
 		 * client positions are set by the user and cannot be recalculated */
+		c->fullscreen_mode = FS_NONE;
 		resize(c, c->prev, 0);
 	}
 	arrange(c->mon);
@@ -2465,14 +2704,17 @@ setfullscreen(Client *c, int fullscreen)
 void
 setlayout(const Arg *arg)
 {
-	if (!selmon)
+	VirtualOutput *vo = current_vout(selmon);
+
+	if (!vo)
 		return;
-	if (!arg || !arg->v || arg->v != selmon->lt[selmon->sellt])
-		selmon->sellt ^= 1;
+	if (!arg || !arg->v || arg->v != vo->lt[vo->sellt])
+		vo->sellt ^= 1;
 	if (arg && arg->v)
-		selmon->lt[selmon->sellt] = (Layout *)arg->v;
-	strncpy(selmon->ltsymbol, selmon->lt[selmon->sellt]->symbol, LENGTH(selmon->ltsymbol));
-	workspace_save_state(selmon);
+		vo->lt[vo->sellt] = (Layout *)arg->v;
+	strncpy(vo->ltsymbol, vo->lt[vo->sellt]->symbol, LENGTH(vo->ltsymbol));
+	vo->ltsymbol[LENGTH(vo->ltsymbol) - 1] = '\0';
+	workspace_save_state(vo);
 	arrange(selmon);
 	printstatus();
 }
@@ -2482,14 +2724,15 @@ void
 setmfact(const Arg *arg)
 {
 	float f;
+ 	VirtualOutput *vo = current_vout(selmon);
 
-	if (!arg || !selmon || !selmon->lt[selmon->sellt]->arrange)
+	if (!arg || !vo || !vo->lt[vo->sellt]->arrange)
 		return;
-	f = arg->f < 1.0f ? arg->f + selmon->mfact : arg->f - 1.0f;
+	f = arg->f < 1.0f ? arg->f + vo->mfact : arg->f - 1.0f;
 	if (f < 0.1 || f > 0.9)
 		return;
-	selmon->mfact = f;
-	workspace_save_state(selmon);
+	vo->mfact = f;
+	workspace_save_state(vo);
 	arrange(selmon);
 }
 
@@ -2497,13 +2740,14 @@ void
 setworkspace(Client *c, Workspace *ws)
 {
 	Monitor *oldmon = c->mon;
+	VirtualOutput *vo = ws ? ws->vo : NULL;
 	Workspace *oldws = c->ws;
 
 	if (oldws == ws)
 		return;
 
 	c->ws = ws;
-	c->mon = ws ? ws->mon : NULL;
+	c->mon = vo ? vo->mon : NULL;
 	c->prev = c->geom;
 
 	if (oldmon && oldmon != c->mon)
@@ -2575,11 +2819,12 @@ setup(void)
 	wlr_scene_node_place_below(&drag_icon->node, &layers[LyrBlock]->node);
 
 	defrule = &monrules[0];
+	(void)vorules;
 	for (i = 0; i < WORKSPACE_COUNT; i++) {
 		Workspace *ws = &workspaces[i];
 		ws->id = i;
 		snprintf(ws->name, sizeof ws->name, "%u", i);
-		ws->mon = NULL;
+		ws->vo = NULL;
 		wl_list_init(&ws->link);
 		ws->state.mfact = defrule->mfact;
 		ws->state.nmaster = defrule->nmaster;
@@ -2815,8 +3060,11 @@ tag(const Arg *arg)
 	ws = workspace_for_id(arg->ui);
 	if (!ws)
 		return;
-	if (!ws->mon && selmon)
-		workspace_attach(selmon, ws);
+	if (!ws->vo && selmon) {
+		VirtualOutput *vo = current_vout(selmon);
+		if (vo)
+			workspace_attach(vo, ws);
+	}
 	setworkspace(sel, ws);
 	printstatus();
 }
@@ -2828,23 +3076,32 @@ tagmon(const Arg *arg)
 	Monitor *m;
 	if (!selmon || !(m = dirtomon(arg->i)))
 		return;
-	if (sel && m->ws)
-		setworkspace(sel, m->ws);
+	if (sel) {
+		VirtualOutput *vo = current_vout(m);
+		if (vo && vo->ws)
+			setworkspace(sel, vo->ws);
+	}
 }
 
 void
 moveworkspace(const Arg *arg)
 {
 	Monitor *target;
-	if (!selmon || !selmon->ws)
+	Workspace *active;
+	VirtualOutput *target_vo;
+
+	if (!selmon || !(active = MON_FOCUS_WS(selmon)))
 		return;
 	target = dirtomon(arg->i);
 	if (!target || target == selmon)
 		return;
-	workspace_move_to_monitor(selmon->ws, target);
+	target_vo = current_vout(target);
+	if (!target_vo)
+		return;
+	workspace_move_to_output(active, target_vo);
 	selmon = target;
-	if (target->ws)
-		selws = target->ws;
+	selvo = target_vo;
+	selws = target_vo->ws;
 	focusclient(focustop(selmon), 1);
 	printstatus();
 }
@@ -2854,13 +3111,21 @@ tabbed(Monitor *m)
 {
 	Client *c, *active = focustop(m);
 	int count = 0;
+	VirtualOutput *vo = current_vout(m);
+	struct wlr_box area;
+
+	if (!vo)
+		return;
+	area = vo->geom;
+	if (!area.width || !area.height)
+		area = m->w;
 
 	wl_list_for_each(c, &clients, link) {
-		if (!VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
+		if (CLIENT_VO(c) != vo || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
 			continue;
 		count++;
 		if (c == active) {
-			resize(c, m->w, 0);
+			resize(c, area, 0);
 			wlr_scene_node_set_enabled(&c->scene->node, 1);
 			client_set_suspended(c, 0);
 		} else {
@@ -2869,7 +3134,7 @@ tabbed(Monitor *m)
 		}
 	}
 	if (count > 1)
-		snprintf(m->ltsymbol, LENGTH(m->ltsymbol), "[T:%d]", count);
+		snprintf(vo->ltsymbol, LENGTH(vo->ltsymbol), "[T:%d]", count);
 	if (active)
 		wlr_scene_node_raise_to_top(&active->scene->node);
 }
@@ -2880,28 +3145,36 @@ tile(Monitor *m)
 	unsigned int mw, my, ty;
 	int i, n = 0;
 	Client *c;
+	VirtualOutput *vo = current_vout(m);
+	struct wlr_box area;
+
+	if (!vo)
+		return;
+	area = vo->geom;
+	if (!area.width || !area.height)
+		area = m->w;
 
 	wl_list_for_each(c, &clients, link)
-		if (VISIBLEON(c, m) && !c->isfloating && !c->isfullscreen)
+		if (CLIENT_VO(c) == vo && VISIBLEON(c, m) && !c->isfloating && !c->isfullscreen)
 			n++;
 	if (n == 0)
 		return;
 
-	if (n > m->nmaster)
-		mw = m->nmaster ? (int)roundf(m->w.width * m->mfact) : 0;
+	if (n > vo->nmaster)
+		mw = vo->nmaster ? (int)roundf(area.width * vo->mfact) : 0;
 	else
-		mw = m->w.width;
+		mw = area.width;
 	i = my = ty = 0;
 	wl_list_for_each(c, &clients, link) {
-		if (!VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
+		if (CLIENT_VO(c) != vo || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
 			continue;
-		if (i < m->nmaster) {
-			resize(c, (struct wlr_box){.x = m->w.x, .y = m->w.y + my, .width = mw,
-				.height = (m->w.height - my) / (MIN(n, m->nmaster) - i)}, 0);
+		if (i < vo->nmaster) {
+			resize(c, (struct wlr_box){.x = area.x, .y = area.y + my, .width = mw,
+				.height = (area.height - my) / (MIN(n, vo->nmaster) - i)}, 0);
 			my += c->geom.height;
 		} else {
-			resize(c, (struct wlr_box){.x = m->w.x + mw, .y = m->w.y + ty,
-				.width = m->w.width - mw, .height = (m->w.height - ty) / (n - i)}, 0);
+			resize(c, (struct wlr_box){.x = area.x + mw, .y = area.y + ty,
+				.width = area.width - mw, .height = (area.height - ty) / (n - i)}, 0);
 			ty += c->geom.height;
 		}
 		i++;
@@ -2921,8 +3194,17 @@ void
 togglefullscreen(const Arg *arg)
 {
 	Client *sel = focustop(selmon);
-	if (sel)
-		setfullscreen(sel, !sel->isfullscreen);
+	if (!sel)
+		return;
+	if (!sel->isfullscreen) {
+		sel->fullscreen_mode = FS_VIRTUAL;
+		setfullscreen(sel, 1);
+	} else if (sel->fullscreen_mode == FS_VIRTUAL) {
+		sel->fullscreen_mode = FS_MONITOR;
+		setfullscreen(sel, 1);
+	} else {
+		setfullscreen(sel, 0);
+	}
 }
 
 void
@@ -2930,9 +3212,10 @@ toggletabbed(const Arg *arg)
 {
 	const Layout *tab = arg && arg->v ? arg->v : NULL;
 	Arg tile_arg = {.v = &layouts[0]};
-	if (!selmon || !tab)
+	VirtualOutput *vo = current_vout(selmon);
+	if (!vo || !tab)
 		return;
-	if (selmon->lt[selmon->sellt] == tab)
+	if (vo->lt[vo->sellt] == tab)
 		setlayout(&tile_arg);
 	else
 		setlayout(&(Arg){.v = tab});
@@ -3002,6 +3285,8 @@ updatemons(struct wl_listener *listener, void *data)
 	Client *c;
 	struct wlr_output_configuration_head_v1 *config_head;
 	Monitor *m;
+	VirtualOutput *vo_iter;
+	struct wlr_box usable;
 
 	/* First remove from the layout the disabled monitors */
 	wl_list_for_each(m, &mons, link) {
@@ -3052,6 +3337,29 @@ updatemons(struct wl_listener *listener, void *data)
 
 		/* Calculate the effective monitor geometry to use for clients */
 		arrangelayers(m);
+		usable = m->w;
+		wl_list_for_each(vo_iter, &m->vouts, link) {
+			struct wlr_box geom = usable;
+			if (vo_iter->rule.width > 0 && vo_iter->rule.height > 0) {
+				geom.x = usable.x + vo_iter->rule.x;
+				geom.y = usable.y + vo_iter->rule.y;
+				geom.width = vo_iter->rule.width;
+				geom.height = vo_iter->rule.height;
+			}
+			if (geom.width <= 0 || geom.height <= 0) {
+				geom = usable;
+			} else {
+				if (geom.x < usable.x)
+					geom.x = usable.x;
+				if (geom.y < usable.y)
+					geom.y = usable.y;
+				if (geom.x + geom.width > usable.x + usable.width)
+					geom.width = (usable.x + usable.width) - geom.x;
+				if (geom.y + geom.height > usable.y + usable.height)
+					geom.height = (usable.y + usable.height) - geom.y;
+			}
+			vo_iter->geom = geom;
+		}
 		/* Don't move clients to the left output when plugging monitors */
 		arrange(m);
 		/* make sure fullscreen clients have the right size */
@@ -3071,9 +3379,10 @@ updatemons(struct wl_listener *listener, void *data)
 	}
 
 	if (selmon && selmon->wlr_output->enabled) {
+		VirtualOutput *vo = current_vout(selmon);
 		wl_list_for_each(c, &clients, link) {
-			if (!c->mon && client_surface(c)->mapped && selmon->ws)
-				setworkspace(c, selmon->ws);
+			if (!c->mon && client_surface(c)->mapped && vo && vo->ws)
+				setworkspace(c, vo->ws);
 		}
 		focusclient(focustop(selmon), 1);
 		if (selmon->lock_surface) {
@@ -3121,7 +3430,7 @@ void
 view(const Arg *arg)
 {
 	Workspace *ws;
-	Monitor *target;
+	VirtualOutput *vo;
 	if (!selmon)
 		return;
 	if (arg->ui >= WORKSPACE_COUNT)
@@ -3129,11 +3438,17 @@ view(const Arg *arg)
 	ws = workspace_for_id(arg->ui);
 	if (!ws)
 		return;
-	if (!ws->mon && selmon)
-		workspace_attach(selmon, ws);
-	target = ws->mon ? ws->mon : selmon;
-	workspace_activate(target, ws, 1);
-	selmon = target;
+	vo = ws->vo;
+	if (!vo && selmon) {
+		vo = current_vout(selmon);
+		if (vo)
+			workspace_attach(vo, ws);
+	}
+	if (!vo)
+		return;
+	workspace_activate(vo, ws, 1);
+	selmon = vo->mon;
+	selvo = vo;
 	selws = ws;
 	printstatus();
 }
@@ -3205,8 +3520,9 @@ void
 zoom(const Arg *arg)
 {
 	Client *c, *sel = focustop(selmon);
+	VirtualOutput *vo = current_vout(selmon);
 
-	if (!sel || !selmon || !selmon->lt[selmon->sellt]->arrange || sel->isfloating)
+	if (!sel || !vo || !vo->lt[vo->sellt]->arrange || sel->isfloating)
 		return;
 
 	/* Search for the first tiled window that is not sel, marking sel as
@@ -3240,79 +3556,184 @@ workspace_for_id(unsigned int id)
 	return id < WORKSPACE_COUNT ? &workspaces[id] : NULL;
 }
 
+static VirtualOutput *
+monitor_first_vout(Monitor *m)
+{
+	VirtualOutput *vo;
+	if (!m || wl_list_empty(&m->vouts))
+		return NULL;
+	vo = wl_container_of(m->vouts.next, vo, link);
+	return vo;
+}
+
+static VirtualOutput *
+current_vout(Monitor *m)
+{
+	VirtualOutput *vo;
+	if (!m)
+		return NULL;
+	vo = m->focus_vout;
+	if (!vo || vo->mon != m)
+		vo = monitor_first_vout(m);
+	return vo;
+}
+
+static VirtualOutput *
+monitor_vout_at(Monitor *m, double lx, double ly)
+{
+	VirtualOutput *vo;
+	if (!m)
+		return NULL;
+	wl_list_for_each(vo, &m->vouts, link) {
+		if (vo->geom.width <= 0 || vo->geom.height <= 0)
+			continue;
+		if (lx >= vo->geom.x && lx < vo->geom.x + vo->geom.width &&
+			ly >= vo->geom.y && ly < vo->geom.y + vo->geom.height)
+			return vo;
+	}
+	return current_vout(m);
+}
+
+static VirtualOutput *
+create_virtual_output(Monitor *m, const char *name)
+{
+	static unsigned int next_id = 1;
+	VirtualOutput *vo;
+
+	if (!m)
+		return NULL;
+	vo = ecalloc(1, sizeof(*vo));
+	vo->mon = m;
+	vo->id = next_id++;
+	vo->scale = 1.f;
+	vo->transform = WL_OUTPUT_TRANSFORM_NORMAL;
+	vo->geom = m->w;
+	vo->rule = (struct wlr_box){0};
+	vo->mfact = 0.55f;
+	vo->nmaster = 1;
+	vo->sellt = 0;
+	vo->lt[0] = &layouts[0];
+	vo->lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : vo->lt[0];
+	strncpy(vo->name, name ? name : m->wlr_output->name, sizeof(vo->name) - 1);
+	vo->name[sizeof(vo->name) - 1] = '\0';
+	strncpy(vo->ltsymbol, vo->lt[vo->sellt]->symbol, LENGTH(vo->ltsymbol));
+	vo->ltsymbol[LENGTH(vo->ltsymbol) - 1] = '\0';
+	wl_list_insert(&m->vouts, &vo->link);
+	wl_list_init(&vo->workspaces);
+	if (!m->focus_vout)
+		m->focus_vout = vo;
+	return vo;
+}
+
+static void
+destroy_virtual_output(VirtualOutput *vo)
+{
+	Workspace *ws, *tmp;
+	Monitor *m;
+	if (!vo)
+		return;
+	m = vo->mon;
+	if (vo->ws)
+		workspace_save_state(vo);
+	wl_list_for_each_safe(ws, tmp, &vo->workspaces, link) {
+		wl_list_remove(&ws->link);
+		wl_list_init(&ws->link);
+		ws->vo = NULL;
+	}
+	wl_list_remove(&vo->link);
+	if (m && m->focus_vout == vo)
+		m->focus_vout = monitor_first_vout(m);
+	free(vo);
+}
+
+static Client *
+focustop_vo(VirtualOutput *vo)
+{
+	Client *c;
+	if (!vo)
+		return NULL;
+	wl_list_for_each(c, &fstack, flink) {
+		if (c->ws && c->ws->vo == vo)
+			return c;
+	}
+	return NULL;
+}
+
 static Workspace *
 workspace_find_unassigned(void)
 {
 	unsigned int i;
 	for (i = 0; i < WORKSPACE_COUNT; i++)
-		if (!workspaces[i].mon)
+		if (!workspaces[i].vo)
 			return &workspaces[i];
 	return NULL;
 }
 
 static void
-workspace_insert_sorted(Monitor *m, Workspace *ws)
+workspace_insert_sorted(VirtualOutput *vo, Workspace *ws)
 {
 	Workspace *iter;
-	if (wl_list_empty(&m->workspaces)) {
-		wl_list_insert(&m->workspaces, &ws->link);
+	if (!vo)
+		return;
+	if (wl_list_empty(&vo->workspaces)) {
+		wl_list_insert(&vo->workspaces, &ws->link);
 		return;
 	}
-	wl_list_for_each(iter, &m->workspaces, link) {
+	wl_list_for_each(iter, &vo->workspaces, link) {
 		if (ws->id < iter->id) {
 			wl_list_insert(iter->link.prev, &ws->link);
 			return;
 		}
 	}
-	wl_list_insert(m->workspaces.prev, &ws->link);
+	wl_list_insert(vo->workspaces.prev, &ws->link);
 }
 
 static void
-workspace_save_state(Monitor *m)
+workspace_save_state(VirtualOutput *vo)
 {
 	Workspace *ws;
-	if (!m || !(ws = m->ws))
+	if (!vo || !(ws = vo->ws))
 		return;
-	ws->state.mfact = m->mfact;
-	ws->state.nmaster = m->nmaster;
-	ws->state.sellt = m->sellt;
-	ws->state.lt[0] = m->lt[0];
-	ws->state.lt[1] = m->lt[1];
+	ws->state.mfact = vo->mfact;
+	ws->state.nmaster = vo->nmaster;
+	ws->state.sellt = vo->sellt;
+	ws->state.lt[0] = vo->lt[0];
+	ws->state.lt[1] = vo->lt[1];
 }
 
 static void
-workspace_sync_from_state(Monitor *m, Workspace *ws)
+workspace_sync_from_state(VirtualOutput *vo, Workspace *ws)
 {
-	if (!m || !ws)
+	if (!vo || !ws)
 		return;
-	m->ws = ws;
-	m->mfact = ws->state.mfact;
-	m->nmaster = ws->state.nmaster;
-	m->sellt = ws->state.sellt;
-	m->lt[0] = ws->state.lt[0] ? ws->state.lt[0] : &layouts[0];
-	m->lt[1] = ws->state.lt[1] ? ws->state.lt[1] : m->lt[0];
-	if (m->sellt > 1)
-		m->sellt = 0;
-	strncpy(m->ltsymbol, m->lt[m->sellt]->symbol, LENGTH(m->ltsymbol));
+	vo->ws = ws;
+	vo->mfact = ws->state.mfact;
+	vo->nmaster = ws->state.nmaster;
+	vo->sellt = ws->state.sellt;
+	vo->lt[0] = ws->state.lt[0] ? ws->state.lt[0] : &layouts[0];
+	vo->lt[1] = ws->state.lt[1] ? ws->state.lt[1] : vo->lt[0];
+	if (vo->sellt > 1)
+		vo->sellt = 0;
+	strncpy(vo->ltsymbol, vo->lt[vo->sellt]->symbol, LENGTH(vo->ltsymbol));
 }
 
 static Workspace *
-workspace_first(Monitor *m)
+workspace_first(VirtualOutput *vo)
 {
 	Workspace *ws;
-	if (!m || wl_list_empty(&m->workspaces))
+	if (!vo || wl_list_empty(&vo->workspaces))
 		return NULL;
-	ws = wl_container_of(m->workspaces.next, ws, link);
+	ws = wl_container_of(vo->workspaces.next, ws, link);
 	return ws;
 }
 
 static Workspace *
-workspace_next_on_monitor(Monitor *m, Workspace *exclude)
+workspace_next_on_output(VirtualOutput *vo, Workspace *exclude)
 {
 	Workspace *ws;
-	if (!m)
+	if (!vo)
 		return NULL;
-	wl_list_for_each(ws, &m->workspaces, link) {
+	wl_list_for_each(ws, &vo->workspaces, link) {
 		if (ws != exclude)
 			return ws;
 	}
@@ -3320,62 +3741,74 @@ workspace_next_on_monitor(Monitor *m, Workspace *exclude)
 }
 
 static void
-workspace_attach(Monitor *m, Workspace *ws)
+workspace_attach(VirtualOutput *vo, Workspace *ws)
 {
-	if (!m || !ws)
+	VirtualOutput *old;
+	if (!vo || !ws)
 		return;
-	if (ws->mon == m)
+	if (ws->vo == vo)
 		return;
-	if (ws->mon) {
-		if (ws->mon->ws == ws)
-			workspace_save_state(ws->mon);
+	old = ws->vo;
+	if (old) {
+		if (old->ws == ws)
+			workspace_save_state(old);
 		wl_list_remove(&ws->link);
 	}
-	ws->mon = m;
-	workspace_insert_sorted(m, ws);
+	ws->vo = vo;
+	workspace_insert_sorted(vo, ws);
 }
 
 static void
-workspace_activate(Monitor *m, Workspace *ws, int focus_change)
+workspace_activate(VirtualOutput *vo, Workspace *ws, int focus_change)
 {
 	Workspace *old;
-	if (!m)
+	Monitor *m;
+	if (!vo)
 		return;
-	old = m->ws;
+	m = vo->mon;
+	if (m)
+		m->focus_vout = vo;
+	old = vo->ws;
 	if (old == ws)
 		return;
-	workspace_save_state(m);
-	if (ws && ws->mon != m)
-		workspace_attach(m, ws);
+	workspace_save_state(vo);
+	if (ws && ws->vo != vo)
+		workspace_attach(vo, ws);
 	if (ws) {
-		workspace_sync_from_state(m, ws);
-		if (m == selmon)
+		workspace_sync_from_state(vo, ws);
+		if (m == selmon) {
 			selws = ws;
+			selvo = vo;
+		}
 		arrange(m);
 		if (focus_change)
-			focusclient(focustop(m), 1);
+			focusclient(focustop_vo(vo), 1);
 	} else {
-		m->ws = NULL;
-		if (m == selmon)
+		vo->ws = NULL;
+		if (m == selmon) {
 			selws = NULL;
+			selvo = vo;
+		}
 		arrange(m);
 		if (focus_change)
-			focusclient(focustop(m), 1);
+			focusclient(focustop_vo(vo), 1);
 	}
 }
 
 static void
-workspace_move_to_monitor(Workspace *ws, Monitor *m)
+workspace_move_to_output(Workspace *ws, VirtualOutput *vo)
 {
-	Monitor *old;
+	VirtualOutput *old;
 	Workspace *fallback;
-	if (!ws || !m || ws->mon == m)
+	Monitor *old_mon;
+	if (!ws || !vo || ws->vo == vo)
 		return;
-	old = ws->mon;
-	workspace_attach(m, ws);
-	workspace_activate(m, ws, 1);
+	old = ws->vo;
+	old_mon = old ? old->mon : NULL;
+	workspace_attach(vo, ws);
+	workspace_activate(vo, ws, 1);
 	if (old) {
-		fallback = workspace_next_on_monitor(old, ws);
+		fallback = workspace_next_on_output(old, ws);
 		if (!fallback)
 			fallback = workspace_first(old);
 		if (!fallback) {
@@ -3383,7 +3816,7 @@ workspace_move_to_monitor(Workspace *ws, Monitor *m)
 			if (fallback)
 				workspace_attach(old, fallback);
 		}
-		workspace_activate(old, fallback, old == selmon);
+		workspace_activate(old, fallback, old_mon && old_mon == selmon);
 	}
 }
 
@@ -3423,7 +3856,8 @@ configurex11(struct wl_listener *listener, void *data)
 				event->x, event->y, event->width, event->height);
 		return;
 	}
-	if ((c->isfloating && c != grabc) || !c->mon->lt[c->mon->sellt]->arrange) {
+	VirtualOutput *vo = CLIENT_VO(c);
+	if ((c->isfloating && c != grabc) || !vo || !vo->lt[vo->sellt]->arrange) {
 		resize(c, (struct wlr_box){.x = event->x - c->bw,
 				.y = event->y - c->bw, .width = event->width + c->bw * 2,
 				.height = event->height + c->bw * 2}, 0);
