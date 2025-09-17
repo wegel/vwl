@@ -86,7 +86,6 @@
 #define WORKSPACE_COUNT         256
 #define WORKSPACE_NAME_LEN      32
 #define DEFAULT_WORKSPACE_ID    1
-#define DEFAULT_WORKSPACES_PER_MON 10
 #define LISTEN(E, L, H)         wl_signal_add((E), ((L)->notify = (H), (L)))
 #define LISTEN_STATIC(E, H)     do { struct wl_listener *_l = ecalloc(1, sizeof(*_l)); _l->notify = (H); wl_signal_add((E), _l); } while (0)
 
@@ -2368,13 +2367,13 @@ maximizenotify(struct wl_listener *listener, void *data)
 		wlr_xdg_surface_schedule_configure(c->surface.xdg);
 }
 
-void
-monocle(Monitor *m)
+static void
+layout_fullscreen(Monitor *m, int suspend_inactive, int symbol_threshold, const char *symbol_fmt)
 {
-	Client *c;
-	int n = 0;
+	Client *c, *active = focustop(m);
 	VirtualOutput *vo = current_vout(m);
 	struct wlr_box area;
+	int count = 0;
 
 	if (!vo)
 		return;
@@ -2383,13 +2382,29 @@ monocle(Monitor *m)
 	wl_list_for_each(c, &clients, link) {
 		if (CLIENT_VO(c) != vo || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
 			continue;
-		resize(c, area, 0);
-		n++;
+		count++;
+		if (!suspend_inactive || c == active) {
+			resize(c, area, 0);
+			if (suspend_inactive) {
+				wlr_scene_node_set_enabled(&c->scene->node, 1);
+				client_set_suspended(c, 0);
+			}
+		} else if (suspend_inactive) {
+			wlr_scene_node_set_enabled(&c->scene->node, 0);
+			client_set_suspended(c, 1);
+		}
 	}
-	if (n)
-		snprintf(vo->ltsymbol, LENGTH(vo->ltsymbol), "[%d]", n);
-	if ((c = focustop(m)))
-		wlr_scene_node_raise_to_top(&c->scene->node);
+
+	if (symbol_fmt && count > symbol_threshold)
+		snprintf(vo->ltsymbol, LENGTH(vo->ltsymbol), symbol_fmt, count);
+	if (active)
+		wlr_scene_node_raise_to_top(&active->scene->node);
+}
+
+void
+monocle(Monitor *m)
+{
+	layout_fullscreen(m, 0, 0, "[%d]");
 }
 
 void
@@ -3414,32 +3429,7 @@ moveworkspace(const Arg *arg)
 void
 tabbed(Monitor *m)
 {
-	Client *c, *active = focustop(m);
-	int count = 0;
-	VirtualOutput *vo = current_vout(m);
-	struct wlr_box area;
-
-	if (!vo)
-		return;
-	area = (vo->geom.width && vo->geom.height) ? vo->geom : m->w;
-
-	wl_list_for_each(c, &clients, link) {
-		if (CLIENT_VO(c) != vo || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
-			continue;
-		count++;
-		if (c == active) {
-			resize(c, area, 0);
-			wlr_scene_node_set_enabled(&c->scene->node, 1);
-			client_set_suspended(c, 0);
-		} else {
-			wlr_scene_node_set_enabled(&c->scene->node, 0);
-			client_set_suspended(c, 1);
-		}
-	}
-	if (count > 1)
-		snprintf(vo->ltsymbol, LENGTH(vo->ltsymbol), "[T:%d]", count);
-	if (active)
-		wlr_scene_node_raise_to_top(&active->scene->node);
+	layout_fullscreen(m, 1, 1, "[T:%d]");
 }
 
 void
