@@ -419,6 +419,7 @@ static Workspace *workspace_first(VirtualOutput *vo);
 static VirtualOutput *monitor_first_vout(Monitor *m);
 static void workspace_move_to_output(Workspace *ws, VirtualOutput *vo);
 static VirtualOutput *monitor_vout_at(Monitor *m, double lx, double ly);
+static void monitor_update_vout_geometries(Monitor *m, const struct wlr_box *usable_area);
 static Workspace *workspace_next_on_output(VirtualOutput *vo, Workspace *exclude);
 static void workspace_save_state(VirtualOutput *vo);
 static void workspace_sync_from_state(VirtualOutput *vo, Workspace *ws);
@@ -669,6 +670,7 @@ arrangelayers(Monitor *m)
 {
 	int i;
 	struct wlr_box usable_area = m->m;
+	struct wlr_box old_area = m->w;
 	LayerSurface *l;
 	uint32_t layers_above_shell[] = {
 		ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY,
@@ -681,10 +683,10 @@ arrangelayers(Monitor *m)
 	for (i = 3; i >= 0; i--)
 		arrangelayer(m, &m->layers[i], &usable_area, 1);
 
-	if (!wlr_box_equal(&usable_area, &m->w)) {
-		m->w = usable_area;
+	m->w = usable_area;
+	monitor_update_vout_geometries(m, &usable_area);
+	if (!wlr_box_equal(&usable_area, &old_area))
 		arrange(m);
-	}
 
 	/* Arrange non-exlusive surfaces from top->bottom */
 	for (i = 3; i >= 0; i--)
@@ -3285,7 +3287,6 @@ updatemons(struct wl_listener *listener, void *data)
 	Client *c;
 	struct wlr_output_configuration_head_v1 *config_head;
 	Monitor *m;
-	VirtualOutput *vo_iter;
 	struct wlr_box usable;
 
 	/* First remove from the layout the disabled monitors */
@@ -3338,28 +3339,7 @@ updatemons(struct wl_listener *listener, void *data)
 		/* Calculate the effective monitor geometry to use for clients */
 		arrangelayers(m);
 		usable = m->w;
-		wl_list_for_each(vo_iter, &m->vouts, link) {
-			struct wlr_box geom = usable;
-			if (vo_iter->rule.width > 0 && vo_iter->rule.height > 0) {
-				geom.x = usable.x + vo_iter->rule.x;
-				geom.y = usable.y + vo_iter->rule.y;
-				geom.width = vo_iter->rule.width;
-				geom.height = vo_iter->rule.height;
-			}
-			if (geom.width <= 0 || geom.height <= 0) {
-				geom = usable;
-			} else {
-				if (geom.x < usable.x)
-					geom.x = usable.x;
-				if (geom.y < usable.y)
-					geom.y = usable.y;
-				if (geom.x + geom.width > usable.x + usable.width)
-					geom.width = (usable.x + usable.width) - geom.x;
-				if (geom.y + geom.height > usable.y + usable.height)
-					geom.height = (usable.y + usable.height) - geom.y;
-			}
-			vo_iter->geom = geom;
-		}
+		monitor_update_vout_geometries(m, &usable);
 		/* Don't move clients to the left output when plugging monitors */
 		arrange(m);
 		/* make sure fullscreen clients have the right size */
@@ -3594,6 +3574,58 @@ monitor_vout_at(Monitor *m, double lx, double ly)
 	return current_vout(m);
 }
 
+static void
+monitor_update_vout_geometries(Monitor *m, const struct wlr_box *usable_area)
+{
+	VirtualOutput *vo;
+	struct wlr_box base;
+	struct wlr_box geom;
+
+	if (!m)
+		return;
+
+	base = usable_area ? *usable_area : m->w;
+
+	wl_list_for_each(vo, &m->vouts, link) {
+		geom = base;
+		if (vo->rule.width > 0 && vo->rule.height > 0) {
+			geom.x = base.x + vo->rule.x;
+			geom.y = base.y + vo->rule.y;
+			geom.width = vo->rule.width;
+			geom.height = vo->rule.height;
+		} else {
+			geom.x = base.x + vo->rule.x;
+			geom.y = base.y + vo->rule.y;
+			if (vo->rule.width > 0)
+				geom.width = vo->rule.width;
+			else
+				geom.width = base.width - vo->rule.x;
+			if (vo->rule.height > 0)
+				geom.height = vo->rule.height;
+			else
+				geom.height = base.height - vo->rule.y;
+		}
+
+		if (geom.x < base.x) {
+			geom.width -= base.x - geom.x;
+			geom.x = base.x;
+		}
+		if (geom.y < base.y) {
+			geom.height -= base.y - geom.y;
+			geom.y = base.y;
+		}
+		if (geom.x + geom.width > base.x + base.width)
+			geom.width = (base.x + base.width) - geom.x;
+		if (geom.y + geom.height > base.y + base.height)
+			geom.height = (base.y + base.height) - geom.y;
+
+		if (geom.width <= 0 || geom.height <= 0)
+			geom = base;
+
+		vo->geom = geom;
+	}
+}
+
 static VirtualOutput *
 create_virtual_output(Monitor *m, const char *name)
 {
@@ -3653,6 +3685,10 @@ focustop_vo(VirtualOutput *vo)
 	if (!vo)
 		return NULL;
 	wl_list_for_each(c, &fstack, flink) {
+		if (c->ws && c->ws->vo == vo && !client_is_unmanaged(c))
+			return c;
+	}
+	wl_list_for_each(c, &clients, link) {
 		if (c->ws && c->ws->vo == vo)
 			return c;
 	}
