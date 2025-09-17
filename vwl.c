@@ -652,8 +652,9 @@ arrange(Monitor *m)
 		}
 	}
 
+	c = focustop(m);
 	wlr_scene_node_set_enabled(&m->fullscreen_bg->node,
-			(c = focustop(m)) && c->isfullscreen);
+			c && c->isfullscreen && c->fullscreen_mode == FS_MONITOR);
 
 	wl_list_for_each(vo, &m->vouts, link) {
 		m->focus_vout = vo;
@@ -2999,19 +3000,24 @@ setfullscreen(Client *c, int fullscreen)
 		return;
 	c->bw = fullscreen ? 0 : borderpx;
 	client_set_fullscreen(c, fullscreen);
-	wlr_scene_node_reparent(&c->scene->node, layers[c->isfullscreen
-			? LyrFS : c->isfloating ? LyrFloat : LyrTile]);
 
 	if (fullscreen) {
 		c->prev = c->geom;
 		vo = CLIENT_VO(c);
 		if (c->fullscreen_mode == FS_NONE)
 			c->fullscreen_mode = FS_VIRTUAL;
+		if (c->fullscreen_mode == FS_MONITOR || !vo)
+			wlr_scene_node_reparent(&c->scene->node, layers[LyrFS]);
+		else
+			wlr_scene_node_reparent(&c->scene->node, layers[LyrFloat]);
 		target = c->mon->m;
 		if (c->fullscreen_mode == FS_VIRTUAL && vo && vo->geom.width && vo->geom.height)
 			target = vo->geom;
 		resize(c, target, 0);
+		if (c->fullscreen_mode == FS_VIRTUAL)
+			wlr_scene_node_raise_to_top(&c->scene->node);
 	} else {
+		wlr_scene_node_reparent(&c->scene->node, layers[c->isfloating ? LyrFloat : LyrTile]);
 		/* restore previous size instead of arrange for floating windows since
 		 * client positions are set by the user and cannot be recalculated */
 		c->fullscreen_mode = FS_NONE;
