@@ -3685,11 +3685,11 @@ focustop_vo(VirtualOutput *vo)
 	if (!vo)
 		return NULL;
 	wl_list_for_each(c, &fstack, flink) {
-		if (c->ws && c->ws->vo == vo && !client_is_unmanaged(c))
+		if (c->ws && c->ws == vo->ws && !client_is_unmanaged(c))
 			return c;
 	}
 	wl_list_for_each(c, &clients, link) {
-		if (c->ws && c->ws->vo == vo)
+		if (c->ws && c->ws == vo->ws)
 			return c;
 	}
 	return NULL;
