@@ -1,0 +1,91 @@
+vwl
+===
+
+wlroots-based Wayland compositor with virtual outputs and physical cursor continuity.
+Originally forked from dwl.
+
+FEATURES
+--------
+- virtual outputs (split physical monitors into independent workspaces)
+- physical cursor continuity (smooth cursor movement across monitor gaps)
+- master/stack tiling
+- tabbed layout
+- monocle layout
+- fullscreen modes (virtual/monitor)
+- per-workspace layout state
+- floating windows
+- XWayland support
+
+KEYBINDS
+--------
+mod = logo key
+
+mod+return      spawn terminal
+mod+d           spawn menu
+mod+q           kill client
+mod+j/k         focus next/prev
+mod+h/l         adjust master width
+mod+m           zoom (swap master)
+mod+f           toggle fullscreen (virtual->monitor->off)
+mod+t           toggle tabbed layout
+mod+space       cycle layout
+mod+shift+space toggle floating
+mod+shift+e     quit compositor
+mod+comma       focus monitor left
+mod+period      focus monitor right
+mod+shift+</>   move client to monitor left/right
+mod+0-9         view workspace 0-9
+mod+shift+0-9   move client to workspace 0-9
+mod+ctrl+shift+h/j/k/l  move workspace to virtual output
+
+BUILDING
+--------
+make
+
+RUNNING
+-------
+./vwl
+
+DEPENDENCIES
+------------
+wlroots 0.19, wayland-server, xkbcommon, libinput, pixman
+optional: xcb, xcb-icccm (for XWayland)
+
+CONFIGURATION
+-------------
+Edit config.def.h and recompile.
+Key settings:
+- physical cursor gap jumps: enable_physical_cursor_gap_jumps
+- virtual output rules: vorules[]
+- monitor rules: monrules[]
+- keyboard/trackpad settings
+
+VIRTUAL OUTPUTS
+---------------
+Split monitors into regions, each displaying a workspace.
+Workspaces (0-255) can be moved between virtual outputs dynamically.
+
+Example config.def.h:
+static const VirtualOutputRule vorules[] = {
+    /* monitor  name     x    y    w    h */
+    { "DP-1",   "left",  0,   0,   960, 1080, ... },
+    { "DP-1",   "right", 960, 0,   960, 1080, ... },
+};
+
+This splits DP-1 into left/right halves, each can show any workspace.
+
+FULLSCREEN MODES
+----------------
+- Virtual fullscreen: fills virtual output region
+- Monitor fullscreen: fills entire physical monitor
+Toggle with mod+f cycles through: off -> virtual -> monitor -> off
+
+PHYSICAL CURSOR CONTINUITY
+---------------------------
+Seamless cursor movement across monitor gaps based on physical dimensions.
+Configure monitor physical properties in monrules[] with width_mm/height_mm.
+
+STATUS
+------
+Work in progress, used daily by the dev.
+
