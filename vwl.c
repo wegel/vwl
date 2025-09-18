@@ -70,6 +70,7 @@
 #endif
 
 #include "util.h"
+#include "vwl-ipc-unstable-v1-protocol.h"
 
 /* macros */
 #define MAX(A, B)               ((A) > (B) ? (A) : (B))
@@ -262,6 +263,7 @@ struct Monitor {
 	struct wlr_box window_area;  /* window area, layout-relative */
 	struct wl_list layers[4]; /* LayerSurface.link */
 	struct wl_list vouts; /* VirtualOutput.link */
+	struct wl_list ipc_outputs; /* IPCOutput.link */
 	VirtualOutput *focus_vout;
 	int gamma_lut_changed;
 	int asleep;
@@ -326,6 +328,17 @@ typedef struct {
 	struct wl_listener unlock;
 	struct wl_listener destroy;
 } SessionLock;
+
+typedef struct IPCOutput IPCOutput;
+struct IPCOutput {
+	struct wl_list link;
+	struct wl_resource *resource;
+	Monitor *mon;
+};
+
+typedef struct {
+	struct wl_resource *resource;
+} IPCManager;
 
 /* function declarations */
 static void applybounds(Client *c, struct wlr_box *bbox);
@@ -401,7 +414,15 @@ static void configurephys(Monitor *m, const MonitorRule *match);
 static void updatephys(Monitor *m);
 static void pointerfocus(Client *c, struct wlr_surface *surface,
 		double sx, double sy, uint32_t time);
-static void printstatus(void);
+static void ipc_manager_bind(struct wl_client *client, void *data, uint32_t version, uint32_t id);
+static void ipc_manager_destroy(struct wl_resource *resource);
+static void ipc_manager_get_output(struct wl_client *client, struct wl_resource *resource, uint32_t id, struct wl_resource *output);
+static void ipc_manager_release(struct wl_client *client, struct wl_resource *resource);
+static void ipc_output_destroy(struct wl_resource *resource);
+static void ipc_output_printstatus(Monitor *monitor);
+static void ipc_output_printstatus_to(IPCOutput *ipc_output);
+static void ipc_output_release(struct wl_client *client, struct wl_resource *resource);
+static void updateipc(void);
 static void powermgrsetmode(struct wl_listener *listener, void *data);
 static void quit(const Arg *arg);
 static void rendermon(struct wl_listener *listener, void *data);
@@ -976,7 +997,11 @@ cleanupmon(struct wl_listener *listener, void *data)
 {
 	Monitor *m = wl_container_of(listener, m, destroy);
 	LayerSurface *l, *tmp;
+	IPCOutput *ipc_output, *ipc_output_tmp;
 	size_t i;
+
+	wl_list_for_each_safe(ipc_output, ipc_output_tmp, &m->ipc_outputs, link)
+		wl_resource_destroy(ipc_output->resource);
 
 	/* m->layers[i] are intentionally not unlinked */
 	for (i = 0; i < LENGTH(m->layers); i++) {
@@ -1088,7 +1113,7 @@ closemon(Monitor *m)
 			setworkspace(c, c->ws);
 	}
 	focusclient(focustop(selmon), 1);
-	printstatus();
+	updateipc();
 }
 
 void
@@ -1332,6 +1357,7 @@ createmon(struct wl_listener *listener, void *data)
 	m = wlr_output->data = ecalloc(1, sizeof(*m));
 	m->wlr_output = wlr_output;
 	wl_list_init(&m->vouts);
+	wl_list_init(&m->ipc_outputs);
 
 	for (i = 0; i < LENGTH(m->layers); i++)
 		wl_list_init(&m->layers[i]);
@@ -1487,7 +1513,7 @@ createmon(struct wl_listener *listener, void *data)
 		selws = selvout ? selvout->ws : NULL;
 	}
 	arrange(m);
-	printstatus();
+	updateipc();
 }
 
 void
@@ -2103,7 +2129,7 @@ focusclient(Client *c, int lift)
 	if (tabbed_mon)
 		arrange(tabbed_mon);
 
-	printstatus();
+	updateipc();
 
 	if (!c) {
 		/* With no client, all we have left is to clear focus */
@@ -2494,7 +2520,7 @@ mapnotify(struct wl_listener *listener, void *data)
 	} else {
 		applyrules(c);
 	}
-	printstatus();
+	updateipc();
 
 unset_fullscreen:
 	m = c->mon ? c->mon : xytomon(c->geom.x, c->geom.y);
@@ -2809,72 +2835,201 @@ pointerfocus(Client *c, struct wlr_surface *surface, double sx, double sy,
 	wlr_seat_pointer_notify_motion(seat, time, sx, sy);
 }
 
+static struct zvwl_ipc_manager_v1_interface manager_implementation = {
+	.release = ipc_manager_release,
+	.get_output = ipc_manager_get_output
+};
+
+static struct zvwl_ipc_output_v1_interface output_implementation = {
+	.release = ipc_output_release,
+	.set_workspace = NULL,
+	.set_client_workspace = NULL,
+	.set_layout = NULL,
+	.set_virtual_output = NULL
+};
+
 void
-printstatus(void)
+ipc_manager_bind(struct wl_client *client, void *data, uint32_t version, uint32_t id)
 {
-	Monitor *m = NULL;
-	Client *c;
+	struct wl_resource *manager_resource = wl_resource_create(client,
+		&zvwl_ipc_manager_v1_interface, version, id);
+
+	if (!manager_resource) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+
+	wl_resource_set_implementation(manager_resource, &manager_implementation, NULL, ipc_manager_destroy);
+
+	/* Send available layouts */
+	for (size_t i = 0; i < LENGTH(layouts); i++)
+		zvwl_ipc_manager_v1_send_layout(manager_resource, layouts[i].symbol);
+}
+
+void
+ipc_manager_destroy(struct wl_resource *resource)
+{
+}
+
+void
+ipc_manager_get_output(struct wl_client *client, struct wl_resource *resource,
+	uint32_t id, struct wl_resource *output)
+{
+	IPCOutput *ipc_output;
+	Monitor *monitor = wlr_output_from_resource(output)->data;
+	struct wl_resource *output_resource = wl_resource_create(client,
+		&zvwl_ipc_output_v1_interface, wl_resource_get_version(resource), id);
+
+	if (!output_resource)
+		return;
+
+	ipc_output = ecalloc(1, sizeof(*ipc_output));
+	ipc_output->resource = output_resource;
+	ipc_output->mon = monitor;
+	wl_resource_set_implementation(output_resource, &output_implementation, ipc_output, ipc_output_destroy);
+	wl_list_insert(&monitor->ipc_outputs, &ipc_output->link);
+	ipc_output_printstatus_to(ipc_output);
+}
+
+void
+ipc_manager_release(struct wl_client *client, struct wl_resource *resource)
+{
+	wl_resource_destroy(resource);
+}
+
+void
+ipc_output_destroy(struct wl_resource *resource)
+{
+	IPCOutput *ipc_output = wl_resource_get_user_data(resource);
+	wl_list_remove(&ipc_output->link);
+	free(ipc_output);
+}
+
+void
+ipc_output_printstatus(Monitor *monitor)
+{
+	IPCOutput *ipc_output;
+	wl_list_for_each(ipc_output, &monitor->ipc_outputs, link)
+		ipc_output_printstatus_to(ipc_output);
+}
+
+void
+ipc_output_printstatus_to(IPCOutput *ipc_output)
+{
+	Monitor *monitor = ipc_output->mon;
+	Client *c, *focused;
 	Workspace *ws;
+	VirtualOutput *vout, *active_vout;
 	unsigned int count, vcount;
 	int urgent, vurgent;
-	VirtualOutput *vout, *active_vout;
+	int is_tabbed = 0, tab_count = 0, tab_index = 0;
 
-	wl_list_for_each(m, &mons, link) {
-		active_vout = focusvout(m);
-		ws = active_vout ? active_vout->ws : NULL;
-		count = 0;
-		urgent = 0;
-		wl_list_for_each(c, &clients, link) {
-			if (c->ws != ws)
+	active_vout = focusvout(monitor);
+	ws = active_vout ? active_vout->ws : NULL;
+
+	count = 0;
+	urgent = 0;
+	wl_list_for_each(c, &clients, link) {
+		if (c->ws != ws)
+			continue;
+		count++;
+		if (c->isurgent)
+			urgent = 1;
+	}
+
+	focused = focustop(monitor);
+
+	/* Check if layout is tabbed and count visible clients */
+	if (active_vout && active_vout->lt[active_vout->sellt] &&
+	    active_vout->lt[active_vout->sellt]->arrange == tabbed) {
+		Client *tab;
+		int idx = 0;
+		is_tabbed = 1;
+		wl_list_for_each(tab, &clients, link) {
+			if (CLIENT_VOUT(tab) != active_vout || !VISIBLEON(tab, monitor) ||
+			    tab->isfloating || tab->isfullscreen)
 				continue;
-			count++;
-			if (c->isurgent)
-				urgent = 1;
-		}
-		if ((c = focustop(m))) {
-			printf("%s title %s\n", m->wlr_output->name, client_get_title(c));
-			printf("%s appid %s\n", m->wlr_output->name, client_get_appid(c));
-			printf("%s fullscreen %d\n", m->wlr_output->name, c->isfullscreen);
-			printf("%s floating %d\n", m->wlr_output->name, c->isfloating);
-		} else {
-			printf("%s title \n", m->wlr_output->name);
-			printf("%s appid \n", m->wlr_output->name);
-			printf("%s fullscreen \n", m->wlr_output->name);
-			printf("%s floating \n", m->wlr_output->name);
-		}
-
-		printf("%s selmon %u\n", m->wlr_output->name, m == selmon);
-		printf("%s workspace %u %s\n", m->wlr_output->name,
-			ws ? ws->id : 0, ws ? ws->name : "");
-		printf("%s clients %u\n", m->wlr_output->name, count);
-		printf("%s urgent %d\n", m->wlr_output->name, urgent);
-		printf("%s layout %s\n", m->wlr_output->name,
-			active_vout ? active_vout->ltsymbol : "");
-
-		wl_list_for_each(vout, &m->vouts, link) {
-			Workspace *vows = vout->ws;
-			vcount = 0;
-			vurgent = 0;
-			wl_list_for_each(c, &clients, link) {
-				if (c->ws != vows)
-					continue;
-				vcount++;
-				if (c->isurgent)
-					vurgent = 1;
-			}
-			printf("%s.vo%u name %s\n", m->wlr_output->name, vout->id,
-				vout->name);
-			printf("%s.vo%u active %u\n", m->wlr_output->name, vout->id,
-				vout == active_vout);
-			printf("%s.vo%u workspace %u %s\n", m->wlr_output->name, vout->id,
-				vows ? vows->id : 0, vows ? vows->name : "");
-			printf("%s.vo%u clients %u\n", m->wlr_output->name, vout->id, vcount);
-			printf("%s.vo%u urgent %d\n", m->wlr_output->name, vout->id, vurgent);
-			printf("%s.vo%u layout %s\n", m->wlr_output->name, vout->id,
-				vout->ltsymbol);
+			if (tab == focused)
+				tab_index = idx;
+			idx++;
+			tab_count++;
 		}
 	}
-	fflush(stdout);
+
+	/* Send output status events */
+	zvwl_ipc_output_v1_send_active(ipc_output->resource, monitor == selmon);
+	zvwl_ipc_output_v1_send_workspace(ipc_output->resource,
+		ws ? ws->id : 0, ws ? ws->name : "");
+	zvwl_ipc_output_v1_send_title(ipc_output->resource,
+		focused ? client_get_title(focused) : "");
+	zvwl_ipc_output_v1_send_appid(ipc_output->resource,
+		focused ? client_get_appid(focused) : "");
+	zvwl_ipc_output_v1_send_fullscreen(ipc_output->resource,
+		focused ? focused->isfullscreen : 0);
+	zvwl_ipc_output_v1_send_floating(ipc_output->resource,
+		focused ? focused->isfloating : 0);
+	zvwl_ipc_output_v1_send_tabbed(ipc_output->resource,
+		is_tabbed, tab_count, tab_index);
+
+	/* Send individual tab window information if in tabbed mode */
+	if (is_tabbed) {
+		Client *tab;
+		int idx = 0;
+		wl_list_for_each(tab, &clients, link) {
+			if (CLIENT_VOUT(tab) != active_vout || !VISIBLEON(tab, monitor) ||
+			    tab->isfloating || tab->isfullscreen)
+				continue;
+			zvwl_ipc_output_v1_send_tab_window(ipc_output->resource,
+				idx,
+				client_get_title(tab) ? client_get_title(tab) : "",
+				client_get_appid(tab) ? client_get_appid(tab) : "",
+				tab == focused);
+			idx++;
+		}
+	}
+
+	zvwl_ipc_output_v1_send_urgent(ipc_output->resource, urgent);
+	zvwl_ipc_output_v1_send_clients(ipc_output->resource, count);
+	zvwl_ipc_output_v1_send_layout_symbol(ipc_output->resource,
+		active_vout ? active_vout->ltsymbol : "");
+
+	/* Send virtual output information */
+	zvwl_ipc_output_v1_send_virtual_output_begin(ipc_output->resource);
+
+	wl_list_for_each(vout, &monitor->vouts, link) {
+		Workspace *vows = vout->ws;
+		vcount = 0;
+		vurgent = 0;
+		wl_list_for_each(c, &clients, link) {
+			if (c->ws != vows)
+				continue;
+			vcount++;
+			if (c->isurgent)
+				vurgent = 1;
+		}
+
+		zvwl_ipc_output_v1_send_virtual_output(ipc_output->resource,
+			vout->id, vout->name, vout == active_vout,
+			vows ? vows->id : 0, vows ? vows->name : "",
+			vcount, vurgent, vout->ltsymbol);
+	}
+
+	zvwl_ipc_output_v1_send_virtual_output_end(ipc_output->resource);
+	zvwl_ipc_output_v1_send_frame(ipc_output->resource);
+}
+
+void
+ipc_output_release(struct wl_client *client, struct wl_resource *resource)
+{
+	wl_resource_destroy(resource);
+}
+
+void
+updateipc(void)
+{
+	Monitor *m;
+	wl_list_for_each(m, &mons, link)
+		ipc_output_printstatus(m);
 }
 
 void
@@ -3026,14 +3181,7 @@ run(char *startup_cmd)
 		close(piperw[0]);
 	}
 
-	/* Mark stdout as non-blocking to avoid the startup script
-	 * causing dwl to freeze when a user neither closes stdin
-	 * nor consumes standard input in his startup script */
-
-	if (fd_set_nonblock(STDOUT_FILENO) < 0)
-		close(STDOUT_FILENO);
-
-	printstatus();
+	updateipc();
 
 	/* At this point the outputs are initialized, choose initial selmon based on
 	 * cursor position, and set default cursor image */
@@ -3101,7 +3249,7 @@ setfloating(Client *c, int floating)
 			(p && p->isfullscreen) ? LyrFS
 			: c->isfloating ? LyrFloat : LyrTile]);
 	arrange(c->mon);
-	printstatus();
+	updateipc();
 }
 
 void
@@ -3138,7 +3286,7 @@ setfullscreen(Client *c, int fullscreen)
 		resize(c, c->prev, 0);
 	}
 	arrange(c->mon);
-	printstatus();
+	updateipc();
 }
 
 void
@@ -3156,7 +3304,7 @@ setlayout(const Arg *arg)
 	vout->ltsymbol[LENGTH(vout->ltsymbol) - 1] = '\0';
 	wssave(vout);
 	arrange(selmon);
-	printstatus();
+	updateipc();
 }
 
 /* arg > 1.0 will set mfact absolutely */
@@ -3448,6 +3596,8 @@ setup(void)
 	wl_signal_add(&output_mgr->events.apply, &output_mgr_apply);
 	wl_signal_add(&output_mgr->events.test, &output_mgr_test);
 
+	wl_global_create(dpy, &zvwl_ipc_manager_v1_interface, 1, NULL, ipc_manager_bind);
+
 	/* Make sure XWayland clients don't connect to the parent X server,
 	 * e.g when running in the x11 backend or the wayland backend and the
 	 * compositor has Xwayland support */
@@ -3508,7 +3658,7 @@ tag(const Arg *arg)
 			wsattach(vout, ws);
 	}
 	setworkspace(sel, ws);
-	printstatus();
+	updateipc();
 }
 
 void
@@ -3545,7 +3695,7 @@ moveworkspace(const Arg *arg)
 	selvout = target_vout;
 	selws = target_vout->ws;
 	focusclient(focustop(selmon), 1);
-	printstatus();
+	updateipc();
 }
 
 void
@@ -3722,7 +3872,7 @@ unmapnotify(struct wl_listener *listener, void *data)
 	}
 
 	wlr_scene_node_destroy(&c->scene->node);
-	printstatus();
+	updateipc();
 	motionnotify(0, NULL, 0, 0, 0, 0);
 }
 
@@ -3845,7 +3995,7 @@ updatetitle(struct wl_listener *listener, void *data)
 {
 	Client *c = wl_container_of(listener, c, set_title);
 	if (c == focustop(c->mon))
-		printstatus();
+		updateipc();
 }
 
 void
@@ -3858,7 +4008,7 @@ urgent(struct wl_listener *listener, void *data)
 		return;
 
 	c->isurgent = 1;
-	printstatus();
+	updateipc();
 
 	if (client_surface(c)->mapped)
 		client_set_border_color(c, urgentcolor);
@@ -3915,7 +4065,7 @@ view(const Arg *arg)
 			/* trigger focus update after cursor warp */
 			motionnotify(0, NULL, 0, 0, 0, 0);
 		}
-	printstatus();
+	updateipc();
 }
 
 void
@@ -4533,7 +4683,7 @@ sethints(struct wl_listener *listener, void *data)
 		return;
 
 	c->isurgent = xcb_icccm_wm_hints_get_urgency(c->surface.xwayland->hints);
-	printstatus();
+	updateipc();
 
 	if (c->isurgent && surface && surface->mapped)
 		client_set_border_color(c, urgentcolor);

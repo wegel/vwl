@@ -17,12 +17,15 @@ DWLCFLAGS = `$(PKG_CONFIG) --cflags $(PKGS)` $(WLR_INCS) $(DWLCPPFLAGS) $(DWLDEV
 LDLIBS    = `$(PKG_CONFIG) --libs $(PKGS)` $(WLR_LIBS) -lm $(LIBS)
 
 all: vwl
-vwl: vwl.o util.o
-	$(CC) vwl.o util.o $(DWLCFLAGS) $(LDFLAGS) $(LDLIBS) -o $@
+
+vwl: vwl.o util.o vwl-ipc-unstable-v1-protocol.o
+	$(CC) vwl.o util.o vwl-ipc-unstable-v1-protocol.o $(DWLCFLAGS) $(LDFLAGS) $(LDLIBS) -o $@
 vwl.o: vwl.c client.h config.h config.mk cursor-shape-v1-protocol.h \
 	pointer-constraints-unstable-v1-protocol.h wlr-layer-shell-unstable-v1-protocol.h \
-	wlr-output-power-management-unstable-v1-protocol.h xdg-shell-protocol.h
+	wlr-output-power-management-unstable-v1-protocol.h xdg-shell-protocol.h \
+	vwl-ipc-unstable-v1-protocol.h
 util.o: util.c util.h
+vwl-ipc-unstable-v1-protocol.o: vwl-ipc-unstable-v1-protocol.c vwl-ipc-unstable-v1-protocol.h
 
 # wayland-scanner is a tool which generates C headers and rigging for Wayland
 # protocols, which are specified in XML. wlroots requires you to rig these up
@@ -45,11 +48,17 @@ wlr-output-power-management-unstable-v1-protocol.h:
 xdg-shell-protocol.h:
 	$(WAYLAND_SCANNER) server-header \
 		$(WAYLAND_PROTOCOLS)/stable/xdg-shell/xdg-shell.xml $@
+vwl-ipc-unstable-v1-protocol.h:
+	$(WAYLAND_SCANNER) server-header \
+		protocols/vwl-ipc-unstable-v1.xml $@
+vwl-ipc-unstable-v1-protocol.c:
+	$(WAYLAND_SCANNER) private-code \
+		protocols/vwl-ipc-unstable-v1.xml $@
 
 config.h:
 	cp config.def.h $@
 clean:
-	rm -f vwl *.o *-protocol.h
+	rm -f vwl *.o *-protocol.h *-protocol.c
 
 dist: clean
 	mkdir -p vwl-$(VERSION)

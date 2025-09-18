@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="utf-8"?>
+<protocol name="vwl_ipc_unstable_v1">
+  <description summary="inter-process-communication about vwl's state">
+      This protocol allows clients to update and get updates from vwl.
+
+      Warning! The protocol described in this file is experimental and
+      backward incompatible changes may be made. Backward compatible
+      changes may be added together with the corresponding interface
+      version bump.
+      Backward incompatible changes are done by bumping the version
+      number in the protocol and interface names and resetting the
+      interface version. Once the protocol is to be declared stable,
+      the 'z' prefix and the version number in the protocol and
+      interface names are removed and the interface version number is
+      reset.
+  </description>
+
+  <interface name="zvwl_ipc_manager_v1" version="1">
+    <description summary="manage vwl state">
+      This interface is exposed as a global in wl_registry.
+
+      Clients can use this interface to get a vwl_ipc_output.
+      After binding the client will receive the vwl_ipc_manager.layouts event.
+      The vwl_ipc_manager.layouts event exposes available layouts to the client.
+    </description>
+
+    <request name="release" type="destructor">
+      <description summary="release vwl_ipc_manager">
+        Indicates that the client will not use the vwl_ipc_manager object anymore.
+        Objects created through this instance are not affected.
+      </description>
+    </request>
+
+    <request name="get_output">
+      <description summary="get a vwl_ipc_output for a wl_output">
+        Get a vwl_ipc_output for the specified wl_output.
+      </description>
+      <arg name="id" type="new_id" interface="zvwl_ipc_output_v1"/>
+      <arg name="output" type="object" interface="wl_output"/>
+    </request>
+
+    <event name="layout">
+      <description summary="Announces a layout">
+        This event is sent after binding.
+        A roundtrip after binding guarantees the client received all layouts.
+      </description>
+      <arg name="name" type="string"/>
+    </event>
+  </interface>
+
+  <interface name="zvwl_ipc_output_v1" version="1">
+    <description summary="control vwl output">
+      Observe and control a vwl output.
+
+      Events are double-buffered:
+      Clients should cache events and redraw when a vwl_ipc_output.frame event is sent.
+
+      Request are not double-buffered:
+      The compositor will update immediately upon request.
+    </description>
+
+    <request name="release" type="destructor">
+      <description summary="release vwl_ipc_output">
+        Indicates to that the client no longer needs this vwl_ipc_output.
+      </description>
+    </request>
+
+    <request name="set_workspace">
+      <description summary="Set the active workspace on this output">
+        Switch to the specified workspace on this output.
+      </description>
+      <arg name="workspace_id" type="uint" summary="ID of the workspace to switch to"/>
+    </request>
+
+    <request name="set_client_workspace">
+      <description summary="Set the workspace of the focused client">
+        Move the focused client to the specified workspace.
+      </description>
+      <arg name="workspace_id" type="uint" summary="ID of the target workspace"/>
+    </request>
+
+    <request name="set_layout">
+      <description summary="Set the layout of the current virtual output"/>
+      <arg name="index" type="uint" summary="index of a layout received by vwl_ipc_manager.layout"/>
+    </request>
+
+    <request name="set_virtual_output">
+      <description summary="Switch to a different virtual output">
+        Switch the monitor's focus to a different virtual output.
+      </description>
+      <arg name="vout_id" type="uint" summary="ID of the virtual output to switch to"/>
+    </request>
+
+    <event name="toggle_visibility">
+      <description summary="Toggle client visibility">
+        Indicates the client should hide or show themselves.
+        If the client is visible then hide, if hidden then show.
+      </description>
+    </event>
+
+    <event name="active">
+      <description summary="Update the selected output">
+        Indicates if the output is active. Zero is inactive, nonzero is active.
+      </description>
+      <arg name="active" type="uint"/>
+    </event>
+
+    <event name="workspace">
+      <description summary="Update the current workspace">
+        Indicates the currently active workspace on this output.
+      </description>
+      <arg name="workspace_id" type="uint" summary="ID of the workspace"/>
+      <arg name="workspace_name" type="string" summary="Name of the workspace"/>
+    </event>
+
+    <event name="title">
+      <description summary="Update the title">
+        Indicates the title of the focused client has changed.
+      </description>
+      <arg name="title" type="string" summary="The new title"/>
+    </event>
+
+    <event name="appid">
+      <description summary="Update the appid">
+        Indicates the appid of the focused client has changed.
+      </description>
+      <arg name="appid" type="string" summary="The new appid"/>
+    </event>
+
+    <event name="fullscreen">
+      <description summary="Update fullscreen status">
+          Indicates if the selected client on this output is fullscreen.
+      </description>
+      <arg name="is_fullscreen" type="uint" summary="If the selected client is fullscreen. Nonzero is true, zero false"/>
+    </event>
+
+    <event name="floating">
+      <description summary="Update the floating status">
+          Indicates if the selected client on this output is floating.
+      </description>
+      <arg name="is_floating" type="uint" summary="If the selected client is floating. Nonzero is true, zero false"/>
+    </event>
+
+    <event name="tabbed">
+      <description summary="Update the tabbed status">
+          Indicates if the selected client on this output is in tabbed mode.
+      </description>
+      <arg name="is_tabbed" type="uint" summary="If the selected client is tabbed. Nonzero is true, zero false"/>
+      <arg name="tab_count" type="uint" summary="Number of tabs if tabbed, 0 otherwise"/>
+      <arg name="tab_index" type="uint" summary="Current tab index if tabbed, 0 otherwise"/>
+    </event>
+
+    <event name="tab_window">
+      <description summary="Information about a tab window">
+          Provides information about each window in the tab group.
+          These events are sent between tabbed event and frame event when in tabbed mode.
+      </description>
+      <arg name="index" type="uint" summary="Tab index (0-based)"/>
+      <arg name="title" type="string" summary="Window title"/>
+      <arg name="appid" type="string" summary="Window app ID"/>
+      <arg name="active" type="uint" summary="Nonzero if this is the active tab"/>
+    </event>
+
+    <event name="urgent">
+      <description summary="Update urgent status">
+        Indicates if there are urgent clients in the current workspace.
+      </description>
+      <arg name="is_urgent" type="uint" summary="Nonzero if there are urgent clients"/>
+    </event>
+
+    <event name="clients">
+      <description summary="Update client count">
+        Indicates the number of clients in the current workspace.
+      </description>
+      <arg name="count" type="uint" summary="Number of clients"/>
+    </event>
+
+    <event name="layout_symbol">
+      <description summary="Update the current layout symbol">
+        Indicates the layout has changed. Since layout symbols are dynamic.
+        This takes precedence over the zvwl_ipc_manager.layout event for display.
+      </description>
+      <arg name="layout" type="string" summary="The current layout symbol"/>
+    </event>
+
+    <event name="virtual_output_begin">
+      <description summary="Begin virtual output information">
+        Indicates that virtual output events will follow.
+        This event starts a batch of virtual output updates.
+      </description>
+    </event>
+
+    <event name="virtual_output">
+      <description summary="Virtual output information">
+        Provides information about a virtual output on this monitor.
+      </description>
+      <arg name="vout_id" type="uint" summary="ID of the virtual output"/>
+      <arg name="name" type="string" summary="Name of the virtual output"/>
+      <arg name="active" type="uint" summary="Nonzero if this is the active virtual output"/>
+      <arg name="workspace_id" type="uint" summary="ID of the workspace on this vout"/>
+      <arg name="workspace_name" type="string" summary="Name of the workspace"/>
+      <arg name="clients" type="uint" summary="Number of clients"/>
+      <arg name="urgent" type="uint" summary="Nonzero if there are urgent clients"/>
+      <arg name="layout" type="string" summary="Layout symbol for this vout"/>
+    </event>
+
+    <event name="virtual_output_end">
+      <description summary="End virtual output information">
+        Indicates that virtual output updates are complete.
+      </description>
+    </event>
+
+    <event name="frame">
+      <description summary="The update sequence is done">
+        Indicates that a sequence of status updates have finished and the client should redraw.
+      </description>
+    </event>
+  </interface>
+</protocol>
