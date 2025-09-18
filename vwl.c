@@ -97,6 +97,7 @@ enum { CurNormal, CurPressed, CurMove, CurResize }; /* cursor */
 enum { XDGShell, LayerShell, X11 }; /* client types */
 enum { LyrBg, LyrBottom, LyrTile, LyrFloat, LyrTop, LyrFS, LyrOverlay, LyrBlock, NUM_LAYERS }; /* scene layers */
 enum { FS_NONE, FS_VIRTUAL, FS_MONITOR }; /* fullscreen modes */
+enum TabHdrPos { TABHDR_TOP, TABHDR_BOTTOM };
 
 typedef union {
 	int i;
@@ -223,6 +224,7 @@ struct VirtualOutput {
 	Monitor *mon;
 	struct wl_list workspaces;
 	Workspace *ws;
+	struct wlr_scene_tree *tabhdr;
 	struct wlr_box layout_geom;       /* layout-relative geometry */
 	struct wlr_box rule_geom;         /* rule geometry in physical pixels */
 	enum wl_output_transform transform;
@@ -424,11 +426,14 @@ static void startdrag(struct wl_listener *listener, void *data);
 static void tag(const Arg *arg);
 static void tagmon(const Arg *arg);
 static void tabbed(Monitor *m);
+static void tabmove(const Arg *arg);
 static void tile(Monitor *m);
 static void togglefloating(const Arg *arg);
 static void togglefullscreen(const Arg *arg);
 static void toggletabbed(const Arg *arg);
 static void moveworkspace(const Arg *arg);
+static void tabhdrupdate(Monitor *m, VirtualOutput *vout, struct wlr_box area, Client *active);
+static void tabhdrdisable(VirtualOutput *vout);
 static void unlocksession(struct wl_listener *listener, void *data);
 static void unmaplayersurfacenotify(struct wl_listener *listener, void *data);
 static void unmapnotify(struct wl_listener *listener, void *data);
@@ -634,6 +639,83 @@ applyrules(Client *c)
 	setworkspace(c, ws);
 }
 
+static void
+tabhdrclear(VirtualOutput *vout)
+{
+	struct wlr_scene_node *node, *tmp;
+
+	if (!vout || !vout->tabhdr)
+		return;
+	wl_list_for_each_safe(node, tmp, &vout->tabhdr->children, link)
+		wlr_scene_node_destroy(node);
+}
+
+static void
+tabhdrdisable(VirtualOutput *vout)
+{
+	if (!vout || !vout->tabhdr)
+		return;
+	tabhdrclear(vout);
+	wlr_scene_node_set_enabled(&vout->tabhdr->node, 0);
+}
+
+static void
+tabhdrupdate(Monitor *m, VirtualOutput *vout, struct wlr_box area, Client *active)
+{
+	struct wlr_scene_tree *tree;
+	Client *c;
+	int count = 0;
+	int height;
+	int idx = 0;
+	int base_width, remainder;
+	int x = 0;
+
+	if (!vout || !(tree = vout->tabhdr))
+		return;
+	height = tabhdr_height;
+	if (height <= 0 || area.width <= 0 || area.height <= height || !vout->ws) {
+		tabhdrdisable(vout);
+		return;
+	}
+
+	wl_list_for_each(c, &clients, link) {
+		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
+			continue;
+		count++;
+	}
+
+	if (count == 0) {
+		tabhdrdisable(vout);
+		return;
+	}
+
+	tabhdrclear(vout);
+	wlr_scene_node_set_enabled(&tree->node, 1);
+
+	if (tabhdr_position == TABHDR_TOP)
+		wlr_scene_node_set_position(&tree->node, area.x, area.y);
+	else
+		wlr_scene_node_set_position(&tree->node, area.x, area.y + area.height - height);
+
+	base_width = area.width / count;
+	remainder = area.width % count;
+
+	wl_list_for_each(c, &clients, link) {
+		struct wlr_scene_rect *rect;
+		int w;
+
+		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
+			continue;
+		w = base_width + (idx < remainder ? 1 : 0);
+		rect = wlr_scene_rect_create(tree, w, height,
+				(c == active) ? tabhdr_active_color : tabhdr_inactive_color);
+		if (rect)
+			wlr_scene_node_set_position(&rect->node, x, 0);
+		x += w;
+		idx++;
+	}
+}
+
 void
 arrange(Monitor *m)
 {
@@ -679,8 +761,13 @@ arrange(Monitor *m)
 				wlr_scene_node_reparent(&c->scene->node, parent);
 		}
 
-		if (vout->lt[vout->sellt]->arrange)
+		if (vout->lt[vout->sellt]->arrange) {
 			vout->lt[vout->sellt]->arrange(m);
+			if (vout->lt[vout->sellt]->arrange != tabbed)
+				tabhdrdisable(vout);
+		} else {
+			tabhdrdisable(vout);
+		}
 	}
 	m->focus_vout = prev_focus ? prev_focus : firstvout(m);
 	motionnotify(0, NULL, 0, 0, 0, 0);
@@ -2072,6 +2159,58 @@ focusstack(const Arg *arg)
 	focusclient(c, 1);
 }
 
+void
+tabmove(const Arg *arg)
+{
+	Client *sel = focustop(selmon);
+	VirtualOutput *vout = focusvout(selmon);
+	struct wl_list *link;
+	Client *target = NULL;
+	int dir;
+
+	if (!sel || !vout || !arg)
+		return;
+	if (!vout->lt[vout->sellt] || vout->lt[vout->sellt]->arrange != tabbed)
+		return;
+	if (CLIENT_VOUT(sel) != vout || sel->isfloating || sel->isfullscreen)
+		return;
+
+	dir = arg->i;
+	if (dir == 0)
+		return;
+
+	if (dir > 0) {
+		for (link = sel->link.next; link != &clients; link = link->next) {
+			Client *c = wl_container_of(link, sel, link);
+			if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, selmon)
+					|| c->isfloating || c->isfullscreen)
+				continue;
+			target = c;
+			break;
+		}
+		if (!target)
+			return;
+		wl_list_remove(&sel->link);
+		wl_list_insert(&target->link, &sel->link);
+	} else {
+		for (link = sel->link.prev; link != &clients; link = link->prev) {
+			Client *c = wl_container_of(link, sel, link);
+			if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, selmon)
+					|| c->isfloating || c->isfullscreen)
+				continue;
+			target = c;
+			break;
+		}
+		if (!target)
+			return;
+		wl_list_remove(&sel->link);
+		wl_list_insert(target->link.prev, &sel->link);
+	}
+
+	arrange(selmon);
+	focusclient(sel, 1);
+}
+
 /* We probably should change the name of this: it sounds like it
  * will focus the topmost client of this mon, when actually will
  * only return that client */
@@ -3441,7 +3580,27 @@ moveworkspace(const Arg *arg)
 void
 tabbed(Monitor *m)
 {
+	VirtualOutput *vout = focusvout(m);
+	struct wlr_box area;
+	Client *active;
+	int header_height;
+
+	if (!vout)
+		return;
+	area = (vout->layout_geom.width && vout->layout_geom.height) ? vout->layout_geom : m->window_area;
 	layout_fullscreen(m, 1, 1, "[T:%d]");
+	active = focustopvout(vout);
+	header_height = tabhdr_height;
+	if (header_height > 0 && area.height > header_height && active
+			&& CLIENT_VOUT(active) == vout && !active->isfloating && !active->isfullscreen) {
+		struct wlr_box client_box = area;
+		client_box.height -= header_height;
+		if (tabhdr_position == TABHDR_TOP)
+			client_box.y += header_height;
+		if (client_box.height > 0)
+			resize(active, client_box, 0);
+	}
+	tabhdrupdate(m, vout, area, active);
 }
 
 void
@@ -4074,6 +4233,9 @@ createvout(Monitor *m, const char *name)
 	else
 		wl_list_insert(m->vouts.prev, &vout->link);
 	wl_list_init(&vout->workspaces);
+	vout->tabhdr = wlr_scene_tree_create(layers[LyrFloat]);
+	if (vout->tabhdr)
+		wlr_scene_node_set_enabled(&vout->tabhdr->node, 0);
 	if (!m->focus_vout)
 		m->focus_vout = vout;
 	return vout;
@@ -4094,6 +4256,8 @@ destroyvout(VirtualOutput *vout)
 		wl_list_init(&ws->link);
 		ws->vout = NULL;
 	}
+	if (vout->tabhdr)
+		wlr_scene_node_destroy(&vout->tabhdr->node);
 	wl_list_remove(&vout->link);
 	if (m && m->focus_vout == vout)
 		m->focus_vout = firstvout(m);

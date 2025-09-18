@@ -14,6 +14,12 @@ static const float urgentcolor[]           = COLOR(0xff0000ff);
 /* This conforms to the xdg-protocol. Set the alpha to zero to restore the old behavior */
 static const float fullscreen_bg[]         = {0.0f, 0.0f, 0.0f, 1.0f}; /* You can also use glsl colors */
 
+/* tabbed header */
+static const int tabhdr_height = 8;
+static const enum TabHdrPos tabhdr_position = TABHDR_TOP;
+static const float tabhdr_active_color[] = COLOR(0x005577ff);
+static const float tabhdr_inactive_color[] = COLOR(0x444444ff);
+
 /* Physical cursor continuity */
 static const int enable_physical_cursor_gap_jumps = 1;
 
@@ -152,6 +158,10 @@ static const Key keys[] = {
 	{ MODKEY,                    XKB_KEY_q,          killclient,     {0} },
 	{ MODKEY,                    XKB_KEY_j,          focusstack,     {.i = +1} },
 	{ MODKEY,                    XKB_KEY_k,          focusstack,     {.i = -1} },
+	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_j,          tabmove,        {.i = +1} },
+	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_k,          tabmove,        {.i = -1} },
+	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_Left,       tabmove,        {.i = -1} },
+	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_Right,      tabmove,        {.i = +1} },
 	{ MODKEY,                    XKB_KEY_h,          setmfact,       {.f = -0.05f} },
 	{ MODKEY,                    XKB_KEY_l,          setmfact,       {.f = +0.05f} },
 	{ MODKEY,                    XKB_KEY_m,          zoom,           {0} },
