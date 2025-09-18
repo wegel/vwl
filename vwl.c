@@ -389,7 +389,6 @@ static void killclient(const Arg *arg);
 static void locksession(struct wl_listener *listener, void *data);
 static void mapnotify(struct wl_listener *listener, void *data);
 static void maximizenotify(struct wl_listener *listener, void *data);
-static void monocle(Monitor *m);
 static void motionabsolute(struct wl_listener *listener, void *data);
 static void motionnotify(uint32_t time, struct wlr_input_device *device, double sx,
 		double sy, double sx_unaccel, double sy_unaccel);
@@ -2067,8 +2066,13 @@ focusclient(Client *c, int lift)
 		if (selmon && selvout)
 			selmon->focus_vout = selvout;
 		if (selvout && selvout->lt[selvout->sellt]
-				&& selvout->lt[selvout->sellt]->arrange == tabbed)
+				&& selvout->lt[selvout->sellt]->arrange == tabbed) {
+			struct wlr_box area;
 			tabbed_mon = selvout->mon;
+			area = (selvout->layout_geom.width && selvout->layout_geom.height)
+				? selvout->layout_geom : selvout->mon->window_area;
+			tabhdrupdate(selvout->mon, selvout, area, c);
+		}
 		c->isurgent = 0;
 
 		/* Don't change border color if there is an exclusive focus or we are
@@ -2207,7 +2211,12 @@ tabmove(const Arg *arg)
 		wl_list_insert(target->link.prev, &sel->link);
 	}
 
-	arrange(selmon);
+	{
+		struct wlr_box area;
+		area = (vout->layout_geom.width && vout->layout_geom.height)
+			? vout->layout_geom : selmon->window_area;
+		tabhdrupdate(selmon, vout, area, sel);
+	}
 	focusclient(sel, 1);
 }
 
@@ -2511,46 +2520,6 @@ maximizenotify(struct wl_listener *listener, void *data)
 			&& wl_resource_get_version(c->surface.xdg->toplevel->resource)
 					< XDG_TOPLEVEL_WM_CAPABILITIES_SINCE_VERSION)
 		wlr_xdg_surface_schedule_configure(c->surface.xdg);
-}
-
-static void
-layout_fullscreen(Monitor *m, int suspend_inactive, int symbol_threshold, const char *symbol_fmt)
-{
-	Client *c, *active = focustop(m);
-	VirtualOutput *vout = focusvout(m);
-	struct wlr_box area;
-	int count = 0;
-
-	if (!vout)
-		return;
-	area = (vout->layout_geom.width && vout->layout_geom.height) ? vout->layout_geom : m->window_area;
-
-	wl_list_for_each(c, &clients, link) {
-		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
-			continue;
-		count++;
-		if (!suspend_inactive || c == active) {
-			resize(c, area, 0);
-			if (suspend_inactive) {
-				wlr_scene_node_set_enabled(&c->scene->node, 1);
-				client_set_suspended(c, 0);
-			}
-		} else if (suspend_inactive) {
-			wlr_scene_node_set_enabled(&c->scene->node, 0);
-			client_set_suspended(c, 1);
-		}
-	}
-
-	if (symbol_fmt && count > symbol_threshold)
-		snprintf(vout->ltsymbol, LENGTH(vout->ltsymbol), symbol_fmt, count);
-	if (active)
-		wlr_scene_node_raise_to_top(&active->scene->node);
-}
-
-void
-monocle(Monitor *m)
-{
-	layout_fullscreen(m, 0, 0, "[%d]");
 }
 
 void
@@ -3584,24 +3553,47 @@ tabbed(Monitor *m)
 {
 	VirtualOutput *vout = focusvout(m);
 	struct wlr_box area;
-	Client *active;
+	struct wlr_box client_box;
+	Client *c, *active;
 	int header_height;
+	int count = 0;
 
 	if (!vout)
 		return;
 	area = (vout->layout_geom.width && vout->layout_geom.height) ? vout->layout_geom : m->window_area;
-	layout_fullscreen(m, 1, 1, "[T:%d]");
 	active = focustopvout(vout);
 	header_height = tabhdr_height;
-	if (header_height > 0 && area.height > header_height && active
-			&& CLIENT_VOUT(active) == vout && !active->isfloating && !active->isfullscreen) {
-		struct wlr_box client_box = area;
+
+	client_box = area;
+	if (header_height > 0 && area.height > header_height) {
 		client_box.height -= header_height;
 		if (tabhdr_position == TABHDR_TOP)
 			client_box.y += header_height;
-		if (client_box.height > 0)
-			resize(active, client_box, 0);
 	}
+
+	wl_list_for_each(c, &clients, link) {
+		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
+			continue;
+		count++;
+		if (c == active) {
+			if (client_box.height > 0 &&
+				(c->geom.x != client_box.x || c->geom.y != client_box.y ||
+				 c->geom.width != client_box.width || c->geom.height != client_box.height))
+				resize(c, client_box, 0);
+			wlr_scene_node_set_enabled(&c->scene->node, 1);
+			client_set_suspended(c, 0);
+		} else {
+			wlr_scene_node_set_enabled(&c->scene->node, 0);
+			client_set_suspended(c, 1);
+		}
+	}
+
+	if (count > 1)
+		snprintf(vout->ltsymbol, LENGTH(vout->ltsymbol), "[T:%d]", count);
+
+	if (active)
+		wlr_scene_node_raise_to_top(&active->scene->node);
+
 	tabhdrupdate(m, vout, area, active);
 }
 

@@ -10,7 +10,6 @@ FEATURES
 - physical cursor continuity (smooth cursor movement across monitor gaps)
 - master/stack tiling
 - tabbed layout
-- monocle layout
 - fullscreen modes (virtual/monitor)
 - per-workspace layout state
 - floating windows
