@@ -1947,6 +1947,7 @@ focusclient(Client *c, int lift)
 {
 	struct wlr_surface *old = seat->keyboard_state.focused_surface;
 	int unused_lx, unused_ly, old_client_type;
+	Monitor *tabbed_mon = NULL;
 	Client *old_c = NULL;
 	LayerSurface *old_l = NULL;
 
@@ -1978,6 +1979,9 @@ focusclient(Client *c, int lift)
 			selws = selvout->ws;
 		if (selmon && selvout)
 			selmon->focus_vout = selvout;
+		if (selvout && selvout->lt[selvout->sellt]
+				&& selvout->lt[selvout->sellt]->arrange == tabbed)
+			tabbed_mon = selvout->mon;
 		c->isurgent = 0;
 
 		/* Don't change border color if there is an exclusive focus or we are
@@ -2005,6 +2009,9 @@ focusclient(Client *c, int lift)
 			client_activate_surface(old, 0);
 		}
 	}
+	if (tabbed_mon)
+		arrange(tabbed_mon);
+
 	printstatus();
 
 	if (!c) {
