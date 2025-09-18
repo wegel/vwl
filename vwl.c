@@ -75,12 +75,11 @@
 #define MAX(A, B)               ((A) > (B) ? (A) : (B))
 #define MIN(A, B)               ((A) < (B) ? (A) : (B))
 #define CLEANMASK(mask)         (mask & ~WLR_MODIFIER_CAPS)
-#define CLIENT_VO(C)            ((C)->ws ? (C)->ws->vo : NULL)
-#define CLIENT_MON(C)           (CLIENT_VO(C) ? CLIENT_VO(C)->mon : NULL)
-#define MON_FOCUS_VO(M)         current_vout(M)
-#define MON_FOCUS_WS(M)         (current_vout(M) ? current_vout(M)->ws : NULL)
+#define CLIENT_VOUT(C)          ((C)->ws ? (C)->ws->vout : NULL)
+#define CLIENT_MON(C)           (CLIENT_VOUT(C) ? CLIENT_VOUT(C)->mon : NULL)
+#define MON_FOCUS_WS(M)         (focusvout(M) ? focusvout(M)->ws : NULL)
 #define VISIBLEON(C, M)         ((M) && (C)->ws && CLIENT_MON(C) == (M) \
-                                && CLIENT_VO(C) && CLIENT_VO(C)->ws == (C)->ws)
+                                && CLIENT_VOUT(C) && CLIENT_VOUT(C)->ws == (C)->ws)
 #define LENGTH(X)               (sizeof X / sizeof X[0])
 #define END(A)                  ((A) + LENGTH(A))
 #define WORKSPACE_COUNT         256
@@ -118,6 +117,7 @@ typedef struct MonitorPhysical MonitorPhysical;
 typedef struct CursorPhysical CursorPhysical;
 typedef struct Workspace Workspace;
 typedef struct VirtualOutput VirtualOutput;
+
 typedef struct {
 	/* Must keep this field first */
 	unsigned int type; /* XDGShell or X11* */
@@ -126,11 +126,11 @@ typedef struct {
 	struct wlr_scene_tree *scene;
 	struct wlr_scene_rect *border[4]; /* top, bottom, left, right */
 	struct wlr_scene_tree *scene_surface;
-    struct wl_list link;
-    struct wl_list flink;
-    struct wlr_box geom; /* layout-relative, includes border */
-    struct wlr_box prev; /* layout-relative, includes border */
-    struct wlr_box bounds; /* only width and height are used */
+	struct wl_list link;
+	struct wl_list flink;
+	struct wlr_box geom; /* layout-relative, includes border */
+	struct wlr_box prev; /* layout-relative, includes border */
+	struct wlr_box bounds; /* only width and height are used */
 	union {
 		struct wlr_xdg_surface *xdg;
 		struct wlr_xwayland_surface *xwayland;
@@ -152,11 +152,11 @@ typedef struct {
 	struct wl_listener configure;
 	struct wl_listener set_hints;
 #endif
-    unsigned int bw;
-    Workspace *ws;
-    int isfloating, isurgent, isfullscreen;
-    int fullscreen_mode;
-    uint32_t resize; /* configure serial of a pending resize */
+	unsigned int bw;
+	Workspace *ws;
+	int isfloating, isurgent, isfullscreen;
+	int fullscreen_mode;
+	uint32_t resize; /* configure serial of a pending resize */
 } Client;
 
 typedef struct {
@@ -197,41 +197,41 @@ typedef struct {
 } LayerSurface;
 
 typedef struct {
-    const char *symbol;
-    void (*arrange)(Monitor *);
+	const char *symbol;
+	void (*arrange)(Monitor *);
 } Layout;
 
 typedef struct {
-    float mfact;
-    int nmaster;
-    const Layout *lt[2];
-    unsigned int sellt;
+	float mfact;
+	int nmaster;
+	const Layout *lt[2];
+	unsigned int sellt;
 } WorkspaceState;
 
 struct Workspace {
-    unsigned int id;
-    char name[WORKSPACE_NAME_LEN];
-    struct wl_list link; /* VirtualOutput.workspaces */
-    VirtualOutput *vo;
-    WorkspaceState state;
+	unsigned int id;
+	char name[WORKSPACE_NAME_LEN];
+	struct wl_list link; /* VirtualOutput.workspaces */
+	VirtualOutput *vout;
+	WorkspaceState state;
 };
 
 struct VirtualOutput {
-    unsigned int id;
-    char name[WORKSPACE_NAME_LEN];
-    struct wl_list link; /* Monitor.vouts */
-    Monitor *mon;
-    struct wl_list workspaces;
-    Workspace *ws;
-    struct wlr_box geom;       /* layout-relative geometry */
-    struct wlr_box rule;       /* rule geometry in physical pixels */
-    enum wl_output_transform transform;
-    float scale;
-    float mfact;
-    int nmaster;
-    const Layout *lt[2];
-    unsigned int sellt;
-    char ltsymbol[16];
+	unsigned int id;
+	char name[WORKSPACE_NAME_LEN];
+	struct wl_list link; /* Monitor.vouts */
+	Monitor *mon;
+	struct wl_list workspaces;
+	Workspace *ws;
+	struct wlr_box layout_geom;       /* layout-relative geometry */
+	struct wlr_box rule_geom;         /* rule geometry in physical pixels */
+	enum wl_output_transform transform;
+	float scale;
+	float mfact;
+	int nmaster;
+	const Layout *lt[2];
+	unsigned int sellt;
+	char ltsymbol[16];
 };
 
 struct MonitorPhysical {
@@ -256,8 +256,8 @@ struct Monitor {
 	struct wl_listener request_state;
 	struct wl_listener destroy_lock_surface;
 	struct wlr_session_lock_surface_v1 *lock_surface;
-	struct wlr_box m; /* monitor area, layout-relative */
-	struct wlr_box w; /* window area, layout-relative */
+	struct wlr_box monitor_area; /* monitor area, layout-relative */
+	struct wlr_box window_area;  /* window area, layout-relative */
 	struct wl_list layers[4]; /* LayerSurface.link */
 	struct wl_list vouts; /* VirtualOutput.link */
 	VirtualOutput *focus_vout;
@@ -310,16 +310,15 @@ typedef struct {
 } PointerConstraint;
 
 typedef struct {
-    const char *id;
-    const char *title;
-    unsigned int workspace;
-    int isfloating;
-    int monitor;
+	const char *id;
+	const char *title;
+	unsigned int workspace;
+	int isfloating;
+	int monitor;
 } Rule;
 
 typedef struct {
 	struct wlr_scene_tree *scene;
-
 	struct wlr_session_lock_v1 *lock;
 	struct wl_listener new_surface;
 	struct wl_listener unlock;
@@ -358,9 +357,9 @@ static void createpopup(struct wl_listener *listener, void *data);
 static void cursorconstrain(struct wlr_pointer_constraint_v1 *constraint);
 static void cursorframe(struct wl_listener *listener, void *data);
 static void cursorwarptohint(void);
-static void cursor_physical_sync(void);
-static void cursor_physical_integrate(double dx, double dy);
-static int cursor_gap_jump(Monitor *origin, double prev_mm_x, double prev_mm_y);
+static void cursorsync(void);
+static void cursorinteg(double dx, double dy);
+static int cursorgap(Monitor *origin, double prev_mm_x, double prev_mm_y);
 static void destroydecoration(struct wl_listener *listener, void *data);
 static void destroydragicon(struct wl_listener *listener, void *data);
 static void destroyidleinhibitor(struct wl_listener *listener, void *data);
@@ -397,8 +396,8 @@ static void moveresize(const Arg *arg);
 static void outputmgrapply(struct wl_listener *listener, void *data);
 static void outputmgrapplyortest(struct wlr_output_configuration_v1 *config, int test);
 static void outputmgrtest(struct wl_listener *listener, void *data);
-static void monitor_configure_physical(Monitor *m, const MonitorRule *match);
-static void monitor_update_physical(Monitor *m);
+static void configurephys(Monitor *m, const MonitorRule *match);
+static void updatephys(Monitor *m);
 static void pointerfocus(Client *c, struct wlr_surface *surface,
 		double sx, double sy, uint32_t time);
 static void printstatus(void);
@@ -443,23 +442,23 @@ static Monitor *xytomon(double x, double y);
 static void xytonode(double x, double y, struct wlr_surface **psurface,
 		Client **pc, LayerSurface **pl, double *nx, double *ny);
 static void zoom(const Arg *arg);
-static Workspace *workspace_for_id(unsigned int id);
-static Workspace *workspace_find_unassigned(void);
-static VirtualOutput *create_virtual_output(Monitor *m, const char *name);
-static void destroy_virtual_output(VirtualOutput *vo);
-static VirtualOutput *current_vout(Monitor *m);
-static void workspace_activate(VirtualOutput *vo, Workspace *ws, int focus_change);
-static void workspace_attach(VirtualOutput *vo, Workspace *ws);
-static Workspace *workspace_first(VirtualOutput *vo);
-static VirtualOutput *monitor_first_vout(Monitor *m);
-static void workspace_move_to_output(Workspace *ws, VirtualOutput *vo);
-static VirtualOutput *monitor_vout_at(Monitor *m, double lx, double ly);
-static void monitor_update_vout_geometries(Monitor *m, const struct wlr_box *usable_area);
-static Workspace *workspace_next_on_output(VirtualOutput *vo, Workspace *exclude);
-static void workspace_save_state(VirtualOutput *vo);
-static void workspace_sync_from_state(VirtualOutput *vo, Workspace *ws);
-static Client *focustop_vo(VirtualOutput *vo);
-static const char *vo_log_name(VirtualOutput *vo, char *buf, size_t len);
+static Workspace *wsbyid(unsigned int id);
+static Workspace *wsfindfree(void);
+static VirtualOutput *createvout(Monitor *m, const char *name);
+static void destroyvout(VirtualOutput *vout);
+static VirtualOutput *focusvout(Monitor *m);
+static void wsactivate(VirtualOutput *vout, Workspace *ws, int focus_change);
+static void wsattach(VirtualOutput *vout, Workspace *ws);
+static Workspace *wsfirst(VirtualOutput *vout);
+static VirtualOutput *firstvout(Monitor *m);
+static void wsmoveto(Workspace *ws, VirtualOutput *vout);
+static VirtualOutput *voutat(Monitor *m, double lx, double ly);
+static void arrangevout(Monitor *m, const struct wlr_box *usable_area);
+static Workspace *wsnext(VirtualOutput *vout, Workspace *exclude);
+static void wssave(VirtualOutput *vout);
+static void wsload(VirtualOutput *vout, Workspace *ws);
+static Client *focustopvout(VirtualOutput *vout);
+/* removed unused voname function */
 
 /* variables */
 static pid_t child_pid = -1;
@@ -517,7 +516,7 @@ static struct wl_list mons;
 static Monitor *selmon;
 static Workspace workspaces[WORKSPACE_COUNT];
 static Workspace *selws;
-static VirtualOutput *selvo;
+static VirtualOutput *selvout;
 
 /* global event handlers */
 static struct wl_listener cursor_axis = {.notify = axisnotify};
@@ -618,20 +617,20 @@ applyrules(Client *c)
 	if (!mon)
 		mon = selmon;
 	if (workspace_id < WORKSPACE_COUNT)
-		ws = workspace_for_id(workspace_id);
+		ws = wsbyid(workspace_id);
 	if (!ws && mon)
 		ws = MON_FOCUS_WS(mon);
-	if (ws && mon && ws->vo && ws->vo->mon != mon) {
-		VirtualOutput *target_vo = current_vout(mon);
-		if (target_vo)
-			workspace_move_to_output(ws, target_vo);
+	if (ws && mon && ws->vout && ws->vout->mon != mon) {
+		VirtualOutput *target_vout = focusvout(mon);
+		if (target_vout)
+			wsmoveto(ws, target_vout);
 	}
 	if (!ws && selmon)
 		ws = MON_FOCUS_WS(selmon);
 	if (!ws)
 		ws = selws;
 	if (!ws)
-		ws = workspace_for_id(DEFAULT_WORKSPACE_ID);
+		ws = wsbyid(DEFAULT_WORKSPACE_ID);
 	setworkspace(c, ws);
 }
 
@@ -639,8 +638,8 @@ void
 arrange(Monitor *m)
 {
 	Client *c;
-	VirtualOutput *vo;
-	VirtualOutput *prev_focus = MON_FOCUS_VO(m);
+	VirtualOutput *vout;
+	VirtualOutput *prev_focus = focusvout(m);
 
 	if (!m->wlr_output->enabled)
 		return;
@@ -656,29 +655,34 @@ arrange(Monitor *m)
 	wlr_scene_node_set_enabled(&m->fullscreen_bg->node,
 			c && c->isfullscreen && c->fullscreen_mode == FS_MONITOR);
 
-	wl_list_for_each(vo, &m->vouts, link) {
-		m->focus_vout = vo;
-		strncpy(vo->ltsymbol, vo->lt[vo->sellt]->symbol, LENGTH(vo->ltsymbol));
-		vo->ltsymbol[LENGTH(vo->ltsymbol) - 1] = '\0';
+	wl_list_for_each(vout, &m->vouts, link) {
+		m->focus_vout = vout;
+		strncpy(vout->ltsymbol, vout->lt[vout->sellt]->symbol, LENGTH(vout->ltsymbol));
+		vout->ltsymbol[LENGTH(vout->ltsymbol) - 1] = '\0';
 
 		/* We move all clients (except fullscreen and unmanaged) to LyrTile while
 		 * in floating layout to avoid "real" floating clients be always on top */
 		wl_list_for_each(c, &clients, link) {
-			if (CLIENT_VO(c) != vo || c->mon != m || c->scene->node.parent == layers[LyrFS])
+			struct wlr_scene_tree *parent = c->scene->node.parent;
+
+			if (CLIENT_VOUT(c) != vout || c->mon != m || c->scene->node.parent == layers[LyrFS])
 				continue;
 
-			wlr_scene_node_reparent(&c->scene->node,
-					(!vo->lt[vo->sellt]->arrange && c->isfloating)
-							? layers[LyrTile]
-							: (vo->lt[vo->sellt]->arrange && c->isfloating)
-								? layers[LyrFloat]
-								: c->scene->node.parent);
+			if (c->isfloating) {
+				if (!vout->lt[vout->sellt]->arrange)
+					parent = layers[LyrTile];
+				else
+					parent = layers[LyrFloat];
+			}
+
+			if (parent != c->scene->node.parent)
+				wlr_scene_node_reparent(&c->scene->node, parent);
 		}
 
-		if (vo->lt[vo->sellt]->arrange)
-			vo->lt[vo->sellt]->arrange(m);
+		if (vout->lt[vout->sellt]->arrange)
+			vout->lt[vout->sellt]->arrange(m);
 	}
-	m->focus_vout = prev_focus ? prev_focus : monitor_first_vout(m);
+	m->focus_vout = prev_focus ? prev_focus : firstvout(m);
 	motionnotify(0, NULL, 0, 0, 0, 0);
 	checkidleinhibitor(NULL);
 }
@@ -687,7 +691,7 @@ void
 arrangelayer(Monitor *m, struct wl_list *list, struct wlr_box *usable_area, int exclusive)
 {
 	LayerSurface *l;
-	struct wlr_box full_area = m->m;
+	struct wlr_box full_area = m->monitor_area;
 
 	wl_list_for_each(l, list, link) {
 		struct wlr_layer_surface_v1 *layer_surface = l->layer_surface;
@@ -707,8 +711,8 @@ void
 arrangelayers(Monitor *m)
 {
 	int i;
-	struct wlr_box usable_area = m->m;
-	struct wlr_box old_area = m->w;
+	struct wlr_box usable_area = m->monitor_area;
+	struct wlr_box old_area = m->window_area;
 	LayerSurface *l;
 	uint32_t layers_above_shell[] = {
 		ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY,
@@ -721,8 +725,8 @@ arrangelayers(Monitor *m)
 	for (i = 3; i >= 0; i--)
 		arrangelayer(m, &m->layers[i], &usable_area, 1);
 
-	m->w = usable_area;
-	monitor_update_vout_geometries(m, &usable_area);
+	m->window_area = usable_area;
+	arrangevout(m, &usable_area);
 	if (!wlr_box_equal(&usable_area, &old_area))
 		arrange(m);
 
@@ -775,12 +779,12 @@ buttonpress(struct wl_listener *listener, void *data)
 		cursor_mode = CurPressed;
 		selmon = xytomon(cursor->x, cursor->y);
 		if (selmon) {
-			VirtualOutput *hover_vo = monitor_vout_at(selmon, cursor->x, cursor->y);
-			if (hover_vo) {
-				selmon->focus_vout = hover_vo;
-				selvo = hover_vo;
-				if (hover_vo->ws)
-					selws = hover_vo->ws;
+			VirtualOutput *hover_vout = voutat(selmon, cursor->x, cursor->y);
+			if (hover_vout) {
+				selmon->focus_vout = hover_vout;
+				selvout = hover_vout;
+				if (hover_vout->ws)
+					selws = hover_vout->ws;
 			}
 		}
 		if (locked)
@@ -810,12 +814,12 @@ buttonpress(struct wl_listener *listener, void *data)
 			/* Drop the window off on its new monitor */
 			selmon = xytomon(cursor->x, cursor->y);
 			if (selmon) {
-				VirtualOutput *hover_vo = monitor_vout_at(selmon, cursor->x, cursor->y);
-				if (hover_vo) {
-					selmon->focus_vout = hover_vo;
-					selvo = hover_vo;
-					if (hover_vo->ws)
-						setworkspace(grabc, hover_vo->ws);
+				VirtualOutput *hover_vout = voutat(selmon, cursor->x, cursor->y);
+				if (hover_vout) {
+					selmon->focus_vout = hover_vout;
+					selvout = hover_vout;
+					if (hover_vout->ws)
+						setworkspace(grabc, hover_vout->ws);
 				}
 			}
 			grabc = NULL;
@@ -953,9 +957,9 @@ closemon(Monitor *m)
 	 * move closed monitor's clients to the focused one */
 	Client *c;
 	Workspace *ws, *wtmp;
-	VirtualOutput *vo, *vtmp;
+	VirtualOutput *vout, *vtmp;
 	Monitor *target;
-	VirtualOutput *target_vo = NULL;
+	VirtualOutput *target_vout = NULL;
 	int i = 0, nmons = wl_list_length(&mons);
 	if (!nmons) {
 		selmon = NULL;
@@ -969,30 +973,30 @@ closemon(Monitor *m)
 	}
 
 	target = selmon;
-	selvo = target ? current_vout(target) : NULL;
+	selvout = target ? focusvout(target) : NULL;
 	if (target)
-		target_vo = current_vout(target);
-	wl_list_for_each_safe(vo, vtmp, &m->vouts, link) {
-		wl_list_for_each_safe(ws, wtmp, &vo->workspaces, link) {
-			if (target_vo) {
-				workspace_move_to_output(ws, target_vo);
-				/* target_vo may gain focus workspace; keep pointer current */
-				target_vo = current_vout(target);
+		target_vout = focusvout(target);
+	wl_list_for_each_safe(vout, vtmp, &m->vouts, link) {
+		wl_list_for_each_safe(ws, wtmp, &vout->workspaces, link) {
+			if (target_vout) {
+				wsmoveto(ws, target_vout);
+				/* target_vout may gain focus workspace; keep pointer current */
+				target_vout = focusvout(target);
 			} else {
-				workspace_save_state(vo);
+				wssave(vout);
 				wl_list_remove(&ws->link);
 				wl_list_init(&ws->link);
-				ws->vo = NULL;
+				ws->vout = NULL;
 			}
 		}
-		destroy_virtual_output(vo);
+		destroyvout(vout);
 	}
-	if (target && target_vo && !target_vo->ws)
-		workspace_activate(target_vo, workspace_first(target_vo), 0);
+	if (target && target_vout && !target_vout->ws)
+		wsactivate(target_vout, wsfirst(target_vout), 0);
 
 	wl_list_for_each(c, &clients, link) {
-		if (c->isfloating && c->geom.x > m->m.width)
-			resize(c, (struct wlr_box){.x = c->geom.x - m->w.width, .y = c->geom.y,
+		if (c->isfloating && c->geom.x > m->monitor_area.width)
+			resize(c, (struct wlr_box){.x = c->geom.x - m->window_area.width, .y = c->geom.y,
 					.width = c->geom.width, .height = c->geom.height}, 0);
 		if (c->mon == m)
 			setworkspace(c, c->ws);
@@ -1091,7 +1095,7 @@ commitpopup(struct wl_listener *listener, void *data)
 		wlr_xdg_popup_destroy(popup);
 		return;
 	}
-	box = type == LayerShell ? l->mon->m : c->mon->w;
+	box = type == LayerShell ? l->mon->monitor_area : c->mon->window_area;
 	box.x -= (type == LayerShell ? l->scene->node.x : c->geom.x);
 	box.y -= (type == LayerShell ? l->scene->node.y : c->geom.y);
 	wlr_xdg_popup_unconstrain_from_box(popup, &box);
@@ -1176,10 +1180,12 @@ createlayersurface(struct wl_listener *listener, void *data)
 	struct wlr_surface *surface = layer_surface->surface;
 	struct wlr_scene_tree *scene_layer = layers[layermap[layer_surface->pending.layer]];
 
-	if (!layer_surface->output
-			&& !(layer_surface->output = selmon ? selmon->wlr_output : NULL)) {
-		wlr_layer_surface_v1_destroy(layer_surface);
-		return;
+	if (!layer_surface->output) {
+		layer_surface->output = selmon ? selmon->wlr_output : NULL;
+		if (!layer_surface->output) {
+			wlr_layer_surface_v1_destroy(layer_surface);
+			return;
+		}
 	}
 
 	l = layer_surface->data = ecalloc(1, sizeof(*l));
@@ -1210,8 +1216,8 @@ createlocksurface(struct wl_listener *listener, void *data)
 			= wlr_scene_subsurface_tree_create(lock->scene, lock_surface->surface);
 	m->lock_surface = lock_surface;
 
-	wlr_scene_node_set_position(&scene_tree->node, m->m.x, m->m.y);
-	wlr_session_lock_surface_v1_configure(lock_surface, m->m.width, m->m.height);
+	wlr_scene_node_set_position(&scene_tree->node, m->monitor_area.x, m->monitor_area.y);
+	wlr_session_lock_surface_v1_configure(lock_surface, m->monitor_area.width, m->monitor_area.height);
 
 	LISTEN(&lock_surface->events.destroy, &m->destroy_lock_surface, destroylocksurface);
 
@@ -1229,8 +1235,8 @@ createmon(struct wl_listener *listener, void *data)
 	size_t i, matched_count;
 	struct wlr_output_state state;
 	Monitor *m;
-	VirtualOutput *vo;
-	VirtualOutput *first_vo;
+	VirtualOutput *vout;
+	VirtualOutput *first_vout;
 	const VirtualOutputRule *matched_rules[LENGTH(vorules)];
 	int first;
 
@@ -1248,8 +1254,8 @@ createmon(struct wl_listener *listener, void *data)
 	/* Initialize monitor state using configured rules */
 	for (r = monrules; r < END(monrules); r++) {
 		if (!r->name || strstr(wlr_output->name, r->name)) {
-			m->m.x = r->x;
-			m->m.y = r->y;
+			m->monitor_area.x = r->x;
+			m->monitor_area.y = r->y;
 			wlr_output_state_set_scale(&state, r->scale);
 			wlr_output_state_set_transform(&state, r->rr);
 			match = r;
@@ -1257,7 +1263,7 @@ createmon(struct wl_listener *listener, void *data)
 		}
 	}
 
-	monitor_configure_physical(m, match);
+	configurephys(m, match);
 
 	/* The mode is a tuple of (width, height, refresh rate), and each
 	 * monitor supports only a specific set of modes. We just pick the
@@ -1298,13 +1304,13 @@ createmon(struct wl_listener *listener, void *data)
 	 * output (such as DPI, scale factor, manufacturer, etc).
 	 */
 	m->scene_output = wlr_scene_output_create(scene, wlr_output);
-	if (m->m.x == -1 && m->m.y == -1)
+	if (m->monitor_area.x == -1 && m->monitor_area.y == -1)
 		wlr_output_layout_add_auto(output_layout, wlr_output);
 	else
-		wlr_output_layout_add(output_layout, wlr_output, m->m.x, m->m.y);
+		wlr_output_layout_add(output_layout, wlr_output, m->monitor_area.x, m->monitor_area.y);
 
 	matched_count = 0;
-	first_vo = NULL;
+	first_vout = NULL;
 	for (i = 0; i < LENGTH(vorules); i++) {
 		const VirtualOutputRule *vr = &vorules[i];
 		if (!vr->monitor)
@@ -1323,76 +1329,76 @@ createmon(struct wl_listener *listener, void *data)
 		matched_rules[matched_count++] = NULL;
 	}
 
-	first_vo = NULL;
+	first_vout = NULL;
 	for (i = 0; i < matched_count; i++) {
 		const VirtualOutputRule *vr = matched_rules[i];
-		VirtualOutput *new_vo;
+		VirtualOutput *new_vout;
 		if (vr) {
-			new_vo = create_virtual_output(m, vr->name);
+			new_vout = createvout(m, vr->name);
 			if (match) {
-				new_vo->mfact = match->mfact;
-				new_vo->nmaster = match->nmaster;
-				new_vo->lt[0] = match->lt ? match->lt : new_vo->lt[0];
-				new_vo->lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : new_vo->lt[0];
+				new_vout->mfact = match->mfact;
+				new_vout->nmaster = match->nmaster;
+				new_vout->lt[0] = match->lt ? match->lt : new_vout->lt[0];
+				new_vout->lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : new_vout->lt[0];
 			}
 			if (vr->mfact > 0)
-				new_vo->mfact = vr->mfact;
+				new_vout->mfact = vr->mfact;
 			if (vr->nmaster > 0)
-				new_vo->nmaster = vr->nmaster;
+				new_vout->nmaster = vr->nmaster;
 			if (vr->lt_primary)
-				new_vo->lt[0] = vr->lt_primary;
+				new_vout->lt[0] = vr->lt_primary;
 			if (vr->lt_secondary)
-				new_vo->lt[1] = vr->lt_secondary;
-			new_vo->sellt = 0;
-			new_vo->scale = vr->scale > 0 ? vr->scale : 1.f;
-			new_vo->transform = vr->transform;
-			new_vo->rule = (struct wlr_box){
+				new_vout->lt[1] = vr->lt_secondary;
+			new_vout->sellt = 0;
+			new_vout->scale = vr->scale > 0 ? vr->scale : 1.f;
+			new_vout->transform = vr->transform;
+			new_vout->rule_geom = (struct wlr_box){
 				.x = vr->x,
 				.y = vr->y,
 				.width = vr->width,
 				.height = vr->height,
 			};
-			strncpy(new_vo->ltsymbol, new_vo->lt[new_vo->sellt]->symbol, LENGTH(new_vo->ltsymbol));
-			new_vo->ltsymbol[LENGTH(new_vo->ltsymbol) - 1] = '\0';
+			strncpy(new_vout->ltsymbol, new_vout->lt[new_vout->sellt]->symbol, LENGTH(new_vout->ltsymbol));
+			new_vout->ltsymbol[LENGTH(new_vout->ltsymbol) - 1] = '\0';
 		} else {
-			new_vo = create_virtual_output(m, NULL);
+			new_vout = createvout(m, NULL);
 			if (match) {
-				new_vo->mfact = match->mfact;
-				new_vo->nmaster = match->nmaster;
-				new_vo->lt[0] = match->lt ? match->lt : new_vo->lt[0];
-				new_vo->lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : new_vo->lt[0];
+				new_vout->mfact = match->mfact;
+				new_vout->nmaster = match->nmaster;
+				new_vout->lt[0] = match->lt ? match->lt : new_vout->lt[0];
+				new_vout->lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : new_vout->lt[0];
 			}
 		}
-		if (!first_vo)
-			first_vo = new_vo;
+		if (!first_vout)
+			first_vout = new_vout;
 	}
-	if (!first_vo)
-		first_vo = monitor_first_vout(m);
+	if (!first_vout)
+		first_vout = firstvout(m);
 
 	if (first) {
 		Workspace *default_ws = &workspaces[DEFAULT_WORKSPACE_ID];
-		if (first_vo && !default_ws->vo)
-			workspace_attach(first_vo, default_ws);
-		if (first_vo)
-			workspace_activate(first_vo, default_ws, 0);
+		if (first_vout && !default_ws->vout)
+			wsattach(first_vout, default_ws);
+		if (first_vout)
+			wsactivate(first_vout, default_ws, 0);
 		selws = default_ws;
-		selvo = first_vo;
+		selvout = first_vout;
 	} else {
-		wl_list_for_each(vo, &m->vouts, link) {
-			Workspace *first_ws = workspace_first(vo);
+		wl_list_for_each(vout, &m->vouts, link) {
+			Workspace *first_ws = wsfirst(vout);
 			if (!first_ws) {
-				Workspace *unassigned = workspace_find_unassigned();
+				Workspace *unassigned = wsfindfree();
 				if (unassigned)
-					workspace_attach(vo, unassigned);
-				first_ws = workspace_first(vo);
+					wsattach(vout, unassigned);
+				first_ws = wsfirst(vout);
 			}
 			if (first_ws)
-				workspace_activate(vo, first_ws, 0);
+				wsactivate(vout, first_ws, 0);
 		}
 	}
 	if (selmon == m) {
-		selvo = current_vout(m);
-		selws = selvo ? selvo->ws : NULL;
+		selvout = focusvout(m);
+		selws = selvout ? selvout->ws : NULL;
 	}
 	arrange(m);
 	printstatus();
@@ -1516,12 +1522,12 @@ cursorwarptohint(void)
 	if (c && active_constraint->current.cursor_hint.enabled) {
 		wlr_cursor_warp(cursor, NULL, sx + c->geom.x + c->bw, sy + c->geom.y + c->bw);
 		wlr_seat_pointer_warp(active_constraint->seat, sx, sy);
-		cursor_physical_sync();
+		cursorsync();
 	}
 }
 
 static void
-cursor_physical_sync(void)
+cursorsync(void)
 {
 	Monitor *m;
 	double rel_x, rel_y;
@@ -1539,8 +1545,8 @@ cursor_physical_sync(void)
 	}
 
 	cursor_phys.last_mon = m;
-	rel_x = cursor->x - m->m.x;
-	rel_y = cursor->y - m->m.y;
+	rel_x = cursor->x - m->monitor_area.x;
+	rel_y = cursor->y - m->monitor_area.y;
 
 	scale_x = (m->phys.mm_per_px_x > 0) ? m->phys.mm_per_px_x : 1.0;
 	scale_y = (m->phys.mm_per_px_y > 0) ? m->phys.mm_per_px_y : 1.0;
@@ -1552,7 +1558,7 @@ cursor_physical_sync(void)
 }
 
 static void
-cursor_physical_integrate(double dx, double dy)
+cursorinteg(double dx, double dy)
 {
 	Monitor *basis;
 	double scale_x = 1.0;
@@ -1573,7 +1579,7 @@ cursor_physical_integrate(double dx, double dy)
 }
 
 static int
-cursor_gap_jump(Monitor *origin, double prev_mm_x, double prev_mm_y)
+cursorgap(Monitor *origin, double prev_mm_x, double prev_mm_y)
 {
 	Monitor *mon;
 	double origin_left_mm, origin_right_mm, origin_top_mm, origin_bottom_mm;
@@ -1617,10 +1623,6 @@ cursor_gap_jump(Monitor *origin, double prev_mm_x, double prev_mm_y)
 
 	anchor_mm = (dir == WLR_DIRECTION_LEFT || dir == WLR_DIRECTION_RIGHT)
 			? cursor_phys.y_mm : cursor_phys.x_mm;
-
-	wlr_log(WLR_DEBUG, "cursor gap check origin=%s dir=%d prev=(%.2f,%.2f) cur=(%.2f,%.2f)",
-			origin->wlr_output ? origin->wlr_output->name : "(null)", dir,
-			prev_mm_x, prev_mm_y, cursor_phys.x_mm, cursor_phys.y_mm);
 
 	switch (dir) {
 	case WLR_DIRECTION_RIGHT:
@@ -1699,16 +1701,16 @@ cursor_gap_jump(Monitor *origin, double prev_mm_x, double prev_mm_y)
 		return 0;
 	}
 
- 	target_left_mm = best->phys.origin_x_mm;
- 	target_right_mm = target_left_mm + best->phys.width_mm;
- 	target_top_mm = best->phys.origin_y_mm;
- 	target_bottom_mm = target_top_mm + best->phys.height_mm;
- 	scale_x = (best->phys.mm_per_px_x > 0) ? best->phys.mm_per_px_x : 1.0;
- 	scale_y = (best->phys.mm_per_px_y > 0) ? best->phys.mm_per_px_y : 1.0;
- 	margin_x = scale_x;
- 	margin_y = scale_y;
- 	new_mm_x = cursor_phys.x_mm;
- 	new_mm_y = cursor_phys.y_mm;
+	target_left_mm = best->phys.origin_x_mm;
+	target_right_mm = target_left_mm + best->phys.width_mm;
+	target_top_mm = best->phys.origin_y_mm;
+	target_bottom_mm = target_top_mm + best->phys.height_mm;
+	scale_x = (best->phys.mm_per_px_x > 0) ? best->phys.mm_per_px_x : 1.0;
+	scale_y = (best->phys.mm_per_px_y > 0) ? best->phys.mm_per_px_y : 1.0;
+	margin_x = scale_x;
+	margin_y = scale_y;
+	new_mm_x = cursor_phys.x_mm;
+	new_mm_y = cursor_phys.y_mm;
 
 	if (margin_x > best->phys.width_mm / 2)
 		margin_x = best->phys.width_mm / 2;
@@ -1751,12 +1753,12 @@ cursor_gap_jump(Monitor *origin, double prev_mm_x, double prev_mm_y)
 
 	rel_mm_x = new_mm_x - target_left_mm;
 	rel_mm_y = new_mm_y - target_top_mm;
-	target_x = best->m.x + rel_mm_x / scale_x;
-	target_y = best->m.y + rel_mm_y / scale_y;
-	min_x = best->m.x;
-	max_x = best->m.x + best->m.width - 1;
-	min_y = best->m.y;
-	max_y = best->m.y + best->m.height - 1;
+	target_x = best->monitor_area.x + rel_mm_x / scale_x;
+	target_y = best->monitor_area.y + rel_mm_y / scale_y;
+	min_x = best->monitor_area.x;
+	max_x = best->monitor_area.x + best->monitor_area.width - 1;
+	min_y = best->monitor_area.y;
+	max_y = best->monitor_area.y + best->monitor_area.height - 1;
 
 	if (target_x < min_x)
 		target_x = min_x;
@@ -1772,11 +1774,8 @@ cursor_gap_jump(Monitor *origin, double prev_mm_x, double prev_mm_y)
 	cursor_phys.mon = best;
 	cursor_phys.last_mon = best;
 
-	wlr_log(WLR_DEBUG, "cursor gap jump -> %s mm=(%.2f,%.2f) px=(%.1f,%.1f)",
-			best->wlr_output ? best->wlr_output->name : "(null)", new_mm_x, new_mm_y,
-			target_x, target_y);
 	wlr_cursor_warp(cursor, NULL, target_x, target_y);
-	cursor_physical_sync();
+	cursorsync();
 	motionnotify(0, NULL, 0, 0, 0, 0);
 	return 1;
 }
@@ -1934,11 +1933,11 @@ dirtomon(enum wlr_direction dir)
 	if (!wlr_output_layout_get(output_layout, selmon->wlr_output))
 		return selmon;
 	if ((next = wlr_output_layout_adjacent_output(output_layout,
-			dir, selmon->wlr_output, selmon->m.x, selmon->m.y)))
+			dir, selmon->wlr_output, selmon->monitor_area.x, selmon->monitor_area.y)))
 		return next->data;
 	if ((next = wlr_output_layout_farthest_output(output_layout,
 			dir ^ (WLR_DIRECTION_LEFT|WLR_DIRECTION_RIGHT),
-			selmon->wlr_output, selmon->m.x, selmon->m.y)))
+			selmon->wlr_output, selmon->monitor_area.x, selmon->monitor_area.y)))
 		return next->data;
 	return selmon;
 }
@@ -1972,13 +1971,13 @@ focusclient(Client *c, int lift)
 		wl_list_remove(&c->flink);
 		wl_list_insert(&fstack, &c->flink);
 		selmon = c->mon;
-		selvo = CLIENT_VO(c);
-		if (selvo && selvo->mon != selmon)
-			selvo = current_vout(selmon);
-		if (selvo && selvo->mon == selmon)
-			selws = selvo->ws;
-		if (selmon && selvo)
-			selmon->focus_vout = selvo;
+		selvout = CLIENT_VOUT(c);
+		if (selvout && selvout->mon != selmon)
+			selvout = focusvout(selmon);
+		if (selvout && selvout->mon == selmon)
+			selws = selvout->ws;
+		if (selmon && selvout)
+			selmon->focus_vout = selvout;
 		c->isurgent = 0;
 
 		/* Don't change border color if there is an exclusive focus or we are
@@ -2034,8 +2033,8 @@ focusmon(const Arg *arg)
 		while (!selmon->wlr_output->enabled && i++ < nmons);
 	}
 	if (selmon) {
-		selvo = current_vout(selmon);
-		selws = selvo ? selvo->ws : NULL;
+		selvout = focusvout(selmon);
+		selws = selvout ? selvout->ws : NULL;
 	}
 	focusclient(focustop(selmon), 1);
 }
@@ -2072,7 +2071,7 @@ focusstack(const Arg *arg)
 Client *
 focustop(Monitor *m)
 {
-	return focustop_vo(current_vout(m));
+	return focustopvout(focusvout(m));
 }
 
 void
@@ -2372,16 +2371,16 @@ static void
 layout_fullscreen(Monitor *m, int suspend_inactive, int symbol_threshold, const char *symbol_fmt)
 {
 	Client *c, *active = focustop(m);
-	VirtualOutput *vo = current_vout(m);
+	VirtualOutput *vout = focusvout(m);
 	struct wlr_box area;
 	int count = 0;
 
-	if (!vo)
+	if (!vout)
 		return;
-	area = (vo->geom.width && vo->geom.height) ? vo->geom : m->w;
+	area = (vout->layout_geom.width && vout->layout_geom.height) ? vout->layout_geom : m->window_area;
 
 	wl_list_for_each(c, &clients, link) {
-		if (CLIENT_VO(c) != vo || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
+		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
 			continue;
 		count++;
 		if (!suspend_inactive || c == active) {
@@ -2397,7 +2396,7 @@ layout_fullscreen(Monitor *m, int suspend_inactive, int symbol_threshold, const 
 	}
 
 	if (symbol_fmt && count > symbol_threshold)
-		snprintf(vo->ltsymbol, LENGTH(vo->ltsymbol), symbol_fmt, count);
+		snprintf(vout->ltsymbol, LENGTH(vout->ltsymbol), symbol_fmt, count);
 	if (active)
 		wlr_scene_node_raise_to_top(&active->scene->node);
 }
@@ -2438,13 +2437,13 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 	struct wlr_surface *surface = NULL;
 	struct wlr_pointer_constraint_v1 *constraint;
 	Monitor *hover_mon;
-	VirtualOutput *hover_vo;
+	VirtualOutput *hover_vout;
 	Monitor *prev_mon = cursor_phys.mon ? cursor_phys.mon : cursor_phys.last_mon;
 	double prev_mm_x = cursor_phys.x_mm;
 	double prev_mm_y = cursor_phys.y_mm;
 
 	if (!prev_mon && cursor) {
-		cursor_physical_sync();
+		cursorsync();
 		prev_mon = cursor_phys.mon ? cursor_phys.mon : cursor_phys.last_mon;
 		prev_mm_x = cursor_phys.x_mm;
 		prev_mm_y = cursor_phys.y_mm;
@@ -2467,14 +2466,14 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 		wlr_relative_pointer_manager_v1_send_relative_motion(
 				relative_pointer_mgr, seat, (uint64_t)time * 1000,
 				dx, dy, dx_unaccel, dy_unaccel);
-		cursor_physical_integrate(dx, dy);
+		cursorinteg(dx, dy);
 
 		if (enable_physical_cursor_gap_jumps
 				&& prev_mon
 				&& cursor_mode == CurNormal
 				&& !seat->drag
 				&& (!active_constraint || active_constraint->type != WLR_POINTER_CONSTRAINT_V1_LOCKED)
-				&& cursor_gap_jump(prev_mon, prev_mm_x, prev_mm_y)) {
+				&& cursorgap(prev_mon, prev_mm_x, prev_mm_y)) {
 			return;
 		}
 
@@ -2501,20 +2500,20 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 		wlr_idle_notifier_v1_notify_activity(idle_notifier, seat);
 
 		hover_mon = xytomon(cursor->x, cursor->y);
-		hover_vo = NULL;
+		hover_vout = NULL;
 		if (hover_mon) {
-			hover_vo = monitor_vout_at(hover_mon, cursor->x, cursor->y);
-			if (hover_vo)
-				hover_mon->focus_vout = hover_vo;
+			hover_vout = voutat(hover_mon, cursor->x, cursor->y);
+			if (hover_vout)
+				hover_mon->focus_vout = hover_vout;
 		}
 
-			cursor_physical_sync();
+			cursorsync();
 
 		/* Update selmon (even while dragging a window) */
 		if (sloppyfocus) {
 			selmon = hover_mon;
 			if (selmon) {
-				selvo = hover_vo ? hover_vo : current_vout(selmon);
+				selvout = hover_vout ? hover_vout : focusvout(selmon);
 			}
 		}
 	}
@@ -2527,12 +2526,12 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 		/* Move the grabbed client to the new position. */
 		resize(grabc, (struct wlr_box){.x = (int)round(cursor->x) - grabcx, .y = (int)round(cursor->y) - grabcy,
 			.width = grabc->geom.width, .height = grabc->geom.height}, 1);
-		cursor_physical_sync();
+		cursorsync();
 		return;
 	} else if (cursor_mode == CurResize) {
 		resize(grabc, (struct wlr_box){.x = grabc->geom.x, .y = grabc->geom.y,
 			.width = (int)round(cursor->x) - grabc->geom.x, .height = (int)round(cursor->y) - grabc->geom.y}, 1);
-		cursor_physical_sync();
+		cursorsync();
 		return;
 	}
 
@@ -2543,7 +2542,7 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 		wlr_cursor_set_xcursor(cursor, cursor_mgr, "default");
 
 	pointerfocus(c, surface, sx, sy, time);
-	cursor_physical_sync();
+	cursorsync();
 }
 
 void
@@ -2585,7 +2584,7 @@ moveresize(const Arg *arg)
 				grabc->geom.x + grabc->geom.width,
 				grabc->geom.y + grabc->geom.height);
 		wlr_cursor_set_xcursor(cursor, cursor_mgr, "se-resize");
-		cursor_physical_sync();
+		cursorsync();
 		break;
 	}
 }
@@ -2643,7 +2642,7 @@ apply_or_test:
 		/* Don't move monitors if position wouldn't change. This avoids
 		 * wlroots marking the output as manually configured.
 		 * wlr_output_layout_add does not like disabled outputs */
-		if (!test && wlr_output->enabled && (m->m.x != config_head->state.x || m->m.y != config_head->state.y))
+		if (!test && wlr_output->enabled && (m->monitor_area.x != config_head->state.x || m->monitor_area.y != config_head->state.y))
 			wlr_output_layout_add(output_layout, wlr_output,
 					config_head->state.x, config_head->state.y);
 
@@ -2703,11 +2702,11 @@ printstatus(void)
 	Workspace *ws;
 	unsigned int count, vcount;
 	int urgent, vurgent;
-	VirtualOutput *vo, *active_vo;
+	VirtualOutput *vout, *active_vout;
 
 	wl_list_for_each(m, &mons, link) {
-		active_vo = current_vout(m);
-		ws = active_vo ? active_vo->ws : NULL;
+		active_vout = focusvout(m);
+		ws = active_vout ? active_vout->ws : NULL;
 		count = 0;
 		urgent = 0;
 		wl_list_for_each(c, &clients, link) {
@@ -2735,10 +2734,10 @@ printstatus(void)
 		printf("%s clients %u\n", m->wlr_output->name, count);
 		printf("%s urgent %d\n", m->wlr_output->name, urgent);
 		printf("%s layout %s\n", m->wlr_output->name,
-			active_vo ? active_vo->ltsymbol : "");
+			active_vout ? active_vout->ltsymbol : "");
 
-		wl_list_for_each(vo, &m->vouts, link) {
-			Workspace *vows = vo->ws;
+		wl_list_for_each(vout, &m->vouts, link) {
+			Workspace *vows = vout->ws;
 			vcount = 0;
 			vurgent = 0;
 			wl_list_for_each(c, &clients, link) {
@@ -2748,16 +2747,16 @@ printstatus(void)
 				if (c->isurgent)
 					vurgent = 1;
 			}
-			printf("%s.vo%u name %s\n", m->wlr_output->name, vo->id,
-				vo->name);
-			printf("%s.vo%u active %u\n", m->wlr_output->name, vo->id,
-				vo == active_vo);
-			printf("%s.vo%u workspace %u %s\n", m->wlr_output->name, vo->id,
+			printf("%s.vo%u name %s\n", m->wlr_output->name, vout->id,
+				vout->name);
+			printf("%s.vo%u active %u\n", m->wlr_output->name, vout->id,
+				vout == active_vout);
+			printf("%s.vo%u workspace %u %s\n", m->wlr_output->name, vout->id,
 				vows ? vows->id : 0, vows ? vows->name : "");
-			printf("%s.vo%u clients %u\n", m->wlr_output->name, vo->id, vcount);
-			printf("%s.vo%u urgent %d\n", m->wlr_output->name, vo->id, vurgent);
-			printf("%s.vo%u layout %s\n", m->wlr_output->name, vo->id,
-				vo->ltsymbol);
+			printf("%s.vo%u clients %u\n", m->wlr_output->name, vout->id, vcount);
+			printf("%s.vo%u urgent %d\n", m->wlr_output->name, vout->id, vurgent);
+			printf("%s.vo%u layout %s\n", m->wlr_output->name, vout->id,
+				vout->ltsymbol);
 		}
 	}
 	fflush(stdout);
@@ -2847,13 +2846,13 @@ resize(Client *c, struct wlr_box geo, int interact)
 {
 	struct wlr_box limit;
 	struct wlr_box *bbox;
-	VirtualOutput *vo = CLIENT_VO(c);
+	VirtualOutput *vout = CLIENT_VOUT(c);
 	struct wlr_box clip;
 
 	if (!c->mon || !client_surface(c)->mapped)
 		return;
 
-	limit = (vo && vo->geom.width && vo->geom.height) ? vo->geom : c->mon->w;
+	limit = (vout && vout->layout_geom.width && vout->layout_geom.height) ? vout->layout_geom : c->mon->window_area;
 	bbox = interact ? &sgeom : &limit;
 
 	client_set_bounds(c, geo.width, geo.height);
@@ -2931,7 +2930,7 @@ run(char *startup_cmd)
 	 * monitor when displayed here */
 	wlr_cursor_warp_closest(cursor, NULL, cursor->x, cursor->y);
 	wlr_cursor_set_xcursor(cursor, cursor_mgr, "default");
-	cursor_physical_sync();
+	cursorsync();
 
 	/* Run the Wayland event loop. This does not return until you exit the
 	 * compositor. Starting the backend rigged up all of the necessary event
@@ -2978,10 +2977,10 @@ void
 setfloating(Client *c, int floating)
 {
 	Client *p = client_get_parent(c);
-	VirtualOutput *vo = CLIENT_VO(c);
+	VirtualOutput *vout = CLIENT_VOUT(c);
 	c->isfloating = floating;
 	/* If in floating layout do not change the client's layer */
-	if (!vo || !client_surface(c)->mapped || !vo->lt[vo->sellt]->arrange)
+	if (!vout || !client_surface(c)->mapped || !vout->lt[vout->sellt]->arrange)
 		return;
 	wlr_scene_node_reparent(&c->scene->node, layers[c->isfullscreen ||
 			(p && p->isfullscreen) ? LyrFS
@@ -2993,7 +2992,7 @@ setfloating(Client *c, int floating)
 void
 setfullscreen(Client *c, int fullscreen)
 {
-	VirtualOutput *vo;
+	VirtualOutput *vout;
 	struct wlr_box target;
 	c->isfullscreen = fullscreen;
 	if (!c->mon || !client_surface(c)->mapped)
@@ -3003,16 +3002,16 @@ setfullscreen(Client *c, int fullscreen)
 
 	if (fullscreen) {
 		c->prev = c->geom;
-		vo = CLIENT_VO(c);
+		vout = CLIENT_VOUT(c);
 		if (c->fullscreen_mode == FS_NONE)
 			c->fullscreen_mode = FS_VIRTUAL;
-		if (c->fullscreen_mode == FS_MONITOR || !vo)
+		if (c->fullscreen_mode == FS_MONITOR || !vout)
 			wlr_scene_node_reparent(&c->scene->node, layers[LyrFS]);
 		else
 			wlr_scene_node_reparent(&c->scene->node, layers[LyrFloat]);
-		target = c->mon->m;
-		if (c->fullscreen_mode == FS_VIRTUAL && vo && vo->geom.width && vo->geom.height)
-			target = vo->geom;
+		target = c->mon->monitor_area;
+		if (c->fullscreen_mode == FS_VIRTUAL && vout && vout->layout_geom.width && vout->layout_geom.height)
+			target = vout->layout_geom;
 		resize(c, target, 0);
 		if (c->fullscreen_mode == FS_VIRTUAL)
 			wlr_scene_node_raise_to_top(&c->scene->node);
@@ -3030,17 +3029,17 @@ setfullscreen(Client *c, int fullscreen)
 void
 setlayout(const Arg *arg)
 {
-	VirtualOutput *vo = current_vout(selmon);
+	VirtualOutput *vout = focusvout(selmon);
 
-	if (!vo)
+	if (!vout)
 		return;
-	if (!arg || !arg->v || arg->v != vo->lt[vo->sellt])
-		vo->sellt ^= 1;
+	if (!arg || !arg->v || arg->v != vout->lt[vout->sellt])
+		vout->sellt ^= 1;
 	if (arg && arg->v)
-		vo->lt[vo->sellt] = (Layout *)arg->v;
-	strncpy(vo->ltsymbol, vo->lt[vo->sellt]->symbol, LENGTH(vo->ltsymbol));
-	vo->ltsymbol[LENGTH(vo->ltsymbol) - 1] = '\0';
-	workspace_save_state(vo);
+		vout->lt[vout->sellt] = (Layout *)arg->v;
+	strncpy(vout->ltsymbol, vout->lt[vout->sellt]->symbol, LENGTH(vout->ltsymbol));
+	vout->ltsymbol[LENGTH(vout->ltsymbol) - 1] = '\0';
+	wssave(vout);
 	arrange(selmon);
 	printstatus();
 }
@@ -3050,15 +3049,15 @@ void
 setmfact(const Arg *arg)
 {
 	float f;
- 	VirtualOutput *vo = current_vout(selmon);
+ 	VirtualOutput *vout = focusvout(selmon);
 
-	if (!arg || !vo || !vo->lt[vo->sellt]->arrange)
+	if (!arg || !vout || !vout->lt[vout->sellt]->arrange)
 		return;
-	f = arg->f < 1.0f ? arg->f + vo->mfact : arg->f - 1.0f;
+	f = arg->f < 1.0f ? arg->f + vout->mfact : arg->f - 1.0f;
 	if (f < 0.1 || f > 0.9)
 		return;
-	vo->mfact = f;
-	workspace_save_state(vo);
+	vout->mfact = f;
+	wssave(vout);
 	arrange(selmon);
 }
 
@@ -3066,14 +3065,14 @@ void
 setworkspace(Client *c, Workspace *ws)
 {
 	Monitor *oldmon = c->mon;
-	VirtualOutput *vo = ws ? ws->vo : NULL;
+	VirtualOutput *vout = ws ? ws->vout : NULL;
 	Workspace *oldws = c->ws;
 
 	if (oldws == ws)
 		return;
 
 	c->ws = ws;
-	c->mon = vo ? vo->mon : NULL;
+	c->mon = vout? vout->mon : NULL;
 	c->prev = c->geom;
 
 	if (oldmon && oldmon != c->mon)
@@ -3150,7 +3149,7 @@ setup(void)
 		Workspace *ws = &workspaces[i];
 		ws->id = i;
 		snprintf(ws->name, sizeof ws->name, "%u", i);
-		ws->vo = NULL;
+		ws->vout = NULL;
 		wl_list_init(&ws->link);
 		ws->state.mfact = defrule->mfact;
 		ws->state.nmaster = defrule->nmaster;
@@ -3315,8 +3314,8 @@ setup(void)
 	wl_signal_add(&virtual_keyboard_mgr->events.new_virtual_keyboard,
 			&new_virtual_keyboard);
 	virtual_pointer_mgr = wlr_virtual_pointer_manager_v1_create(dpy);
-    wl_signal_add(&virtual_pointer_mgr->events.new_virtual_pointer,
-            &new_virtual_pointer);
+	wl_signal_add(&virtual_pointer_mgr->events.new_virtual_pointer,
+			&new_virtual_pointer);
 
 	seat = wlr_seat_create(dpy, "seat0");
 	wl_signal_add(&seat->events.request_set_cursor, &request_cursor);
@@ -3383,13 +3382,13 @@ tag(const Arg *arg)
 		return;
 	if (arg->ui >= WORKSPACE_COUNT)
 		return;
-	ws = workspace_for_id(arg->ui);
+	ws = wsbyid(arg->ui);
 	if (!ws)
 		return;
-	if (!ws->vo && selmon) {
-		VirtualOutput *vo = current_vout(selmon);
-		if (vo)
-			workspace_attach(vo, ws);
+	if (!ws->vout && selmon) {
+		VirtualOutput *vout = focusvout(selmon);
+		if (vout)
+			wsattach(vout, ws);
 	}
 	setworkspace(sel, ws);
 	printstatus();
@@ -3403,9 +3402,9 @@ tagmon(const Arg *arg)
 	if (!selmon || !(m = dirtomon(arg->i)))
 		return;
 	if (sel) {
-		VirtualOutput *vo = current_vout(m);
-		if (vo && vo->ws)
-			setworkspace(sel, vo->ws);
+		VirtualOutput *vout = focusvout(m);
+		if (vout && vout->ws)
+			setworkspace(sel, vout->ws);
 	}
 }
 
@@ -3414,20 +3413,20 @@ moveworkspace(const Arg *arg)
 {
 	Monitor *target;
 	Workspace *active;
-	VirtualOutput *target_vo;
+	VirtualOutput *target_vout;
 
 	if (!selmon || !(active = MON_FOCUS_WS(selmon)))
 		return;
 	target = dirtomon(arg->i);
 	if (!target || target == selmon)
 		return;
-	target_vo = current_vout(target);
-	if (!target_vo)
+	target_vout = focusvout(target);
+	if (!target_vout)
 		return;
-	workspace_move_to_output(active, target_vo);
+	wsmoveto(active, target_vout);
 	selmon = target;
-	selvo = target_vo;
-	selws = target_vo->ws;
+	selvout = target_vout;
+	selws = target_vout->ws;
 	focusclient(focustop(selmon), 1);
 	printstatus();
 }
@@ -3444,30 +3443,30 @@ tile(Monitor *m)
 	unsigned int mw, my, ty;
 	int i, n = 0;
 	Client *c;
-	VirtualOutput *vo = current_vout(m);
+	VirtualOutput *vout = focusvout(m);
 	struct wlr_box area;
 
-	if (!vo)
+	if (!vout)
 		return;
-	area = (vo->geom.width && vo->geom.height) ? vo->geom : m->w;
+	area = (vout->layout_geom.width && vout->layout_geom.height) ? vout->layout_geom : m->window_area;
 
 	wl_list_for_each(c, &clients, link)
-		if (CLIENT_VO(c) == vo && VISIBLEON(c, m) && !c->isfloating && !c->isfullscreen)
+		if (CLIENT_VOUT(c) == vout && VISIBLEON(c, m) && !c->isfloating && !c->isfullscreen)
 			n++;
 	if (n == 0)
 		return;
 
-	if (n > vo->nmaster)
-		mw = vo->nmaster ? (int)roundf(area.width * vo->mfact) : 0;
+	if (n > vout->nmaster)
+		mw = vout->nmaster ? (int)roundf(area.width * vout->mfact) : 0;
 	else
 		mw = area.width;
 	i = my = ty = 0;
 	wl_list_for_each(c, &clients, link) {
-		if (CLIENT_VO(c) != vo || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
+		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
 			continue;
-		if (i < vo->nmaster) {
+		if (i < vout->nmaster) {
 			resize(c, (struct wlr_box){.x = area.x, .y = area.y + my, .width = mw,
-				.height = (area.height - my) / (MIN(n, vo->nmaster) - i)}, 0);
+				.height = (area.height - my) / (MIN(n, vout->nmaster) - i)}, 0);
 			my += c->geom.height;
 		} else {
 			resize(c, (struct wlr_box){.x = area.x + mw, .y = area.y + ty,
@@ -3509,10 +3508,10 @@ toggletabbed(const Arg *arg)
 {
 	const Layout *tab = arg && arg->v ? arg->v : NULL;
 	Arg tile_arg = {.v = &layouts[0]};
-	VirtualOutput *vo = current_vout(selmon);
-	if (!vo || !tab)
+	VirtualOutput *vout = focusvout(selmon);
+	if (!vout || !tab)
 		return;
-	if (vo->lt[vo->sellt] == tab)
+	if (vout->lt[vout->sellt] == tab)
 		setlayout(&tile_arg);
 	else
 		setlayout(&(Arg){.v = tab});
@@ -3593,7 +3592,7 @@ updatemons(struct wl_listener *listener, void *data)
 		/* Remove this output from the layout to avoid cursor enter inside it */
 		wlr_output_layout_remove(output_layout, m->wlr_output);
 		closemon(m);
-		m->m = m->w = (struct wlr_box){0};
+		m->monitor_area = m->window_area = (struct wlr_box){0};
 	}
 	/* Insert outputs that need to */
 	wl_list_for_each(m, &mons, link) {
@@ -3612,44 +3611,44 @@ updatemons(struct wl_listener *listener, void *data)
 	wlr_scene_node_set_position(&locked_bg->node, sgeom.x, sgeom.y);
 	wlr_scene_rect_set_size(locked_bg, sgeom.width, sgeom.height);
 
-		wl_list_for_each(m, &mons, link) {
-			if (!m->wlr_output->enabled) {
-				continue;
-			}
-			config_head = wlr_output_configuration_head_v1_create(config, m->wlr_output);
+	wl_list_for_each(m, &mons, link) {
+		if (!m->wlr_output->enabled) {
+			continue;
+		}
+		config_head = wlr_output_configuration_head_v1_create(config, m->wlr_output);
 
-			/* Get the effective monitor geometry to use for surfaces */
-			wlr_output_layout_get_box(output_layout, m->wlr_output, &m->m);
-			m->w = m->m;
-			wlr_scene_output_set_position(m->scene_output, m->m.x, m->m.y);
+		/* Get the effective monitor geometry to use for surfaces */
+		wlr_output_layout_get_box(output_layout, m->wlr_output, &m->monitor_area);
+		m->window_area = m->monitor_area;
+		wlr_scene_output_set_position(m->scene_output, m->monitor_area.x, m->monitor_area.y);
 
-			wlr_scene_node_set_position(&m->fullscreen_bg->node, m->m.x, m->m.y);
-			wlr_scene_rect_set_size(m->fullscreen_bg, m->m.width, m->m.height);
+		wlr_scene_node_set_position(&m->fullscreen_bg->node, m->monitor_area.x, m->monitor_area.y);
+		wlr_scene_rect_set_size(m->fullscreen_bg, m->monitor_area.width, m->monitor_area.height);
 
-			monitor_update_physical(m);
+		updatephys(m);
 
-			if (m->lock_surface) {
-				struct wlr_scene_tree *scene_tree = m->lock_surface->surface->data;
-			wlr_scene_node_set_position(&scene_tree->node, m->m.x, m->m.y);
-			wlr_session_lock_surface_v1_configure(m->lock_surface, m->m.width, m->m.height);
+		if (m->lock_surface) {
+			struct wlr_scene_tree *scene_tree = m->lock_surface->surface->data;
+			wlr_scene_node_set_position(&scene_tree->node, m->monitor_area.x, m->monitor_area.y);
+			wlr_session_lock_surface_v1_configure(m->lock_surface, m->monitor_area.width, m->monitor_area.height);
 		}
 
 		/* Calculate the effective monitor geometry to use for clients */
 		arrangelayers(m);
-		usable = m->w;
-		monitor_update_vout_geometries(m, &usable);
+		usable = m->window_area;
+		arrangevout(m, &usable);
 		/* Don't move clients to the left output when plugging monitors */
 		arrange(m);
 		/* make sure fullscreen clients have the right size */
 		if ((c = focustop(m)) && c->isfullscreen)
-			resize(c, m->m, 0);
+			resize(c, m->monitor_area, 0);
 
 		/* Try to re-set the gamma LUT when updating monitors,
 		 * it's only really needed when enabling a disabled output, but meh. */
 		m->gamma_lut_changed = 1;
 
-		config_head->state.x = m->m.x;
-		config_head->state.y = m->m.y;
+		config_head->state.x = m->monitor_area.x;
+		config_head->state.y = m->monitor_area.y;
 
 		if (!selmon) {
 			selmon = m;
@@ -3657,10 +3656,10 @@ updatemons(struct wl_listener *listener, void *data)
 	}
 
 	if (selmon && selmon->wlr_output->enabled) {
-		VirtualOutput *vo = current_vout(selmon);
+		VirtualOutput *vout = focusvout(selmon);
 		wl_list_for_each(c, &clients, link) {
-			if (!c->mon && client_surface(c)->mapped && vo && vo->ws)
-				setworkspace(c, vo->ws);
+			if (!c->mon && client_surface(c)->mapped && vout && vout->ws)
+				setworkspace(c, vout->ws);
 		}
 		focusclient(focustop(selmon), 1);
 		if (selmon->lock_surface) {
@@ -3676,7 +3675,7 @@ updatemons(struct wl_listener *listener, void *data)
 		 * wl_pointer.motion event for the clients, it's only the image what it's
 		 * at the wrong position after all. */
 		wlr_cursor_move(cursor, NULL, 0, 0);
-		cursor_physical_sync();
+		cursorsync();
 
 		wlr_output_manager_v1_set_configuration(output_mgr, config);
 }
@@ -3709,55 +3708,50 @@ void
 view(const Arg *arg)
 {
 	Workspace *ws;
-	VirtualOutput *vo;
+	VirtualOutput *vout;
 	VirtualOutput *target = NULL;
 	if (!selmon)
 		return;
 	if (arg->ui >= WORKSPACE_COUNT)
 		return;
-	ws = workspace_for_id(arg->ui);
+	ws = wsbyid(arg->ui);
 	if (!ws)
 		return;
-	vo = ws->vo;
-	if (!vo) {
+	vout = ws->vout;
+	if (!vout) {
 		if (cursor) {
 			Monitor *pointer_mon = xytomon(cursor->x, cursor->y);
-			VirtualOutput *pointer_vo = pointer_mon ? monitor_vout_at(pointer_mon, cursor->x, cursor->y) : NULL;
-			if (pointer_vo)
-				target = pointer_vo;
+			VirtualOutput *pointer_vout = pointer_mon ? voutat(pointer_mon, cursor->x, cursor->y) : NULL;
+			if (pointer_vout)
+				target = pointer_vout;
 			else if (pointer_mon)
-				target = current_vout(pointer_mon);
+				target = focusvout(pointer_mon);
 		}
 		if (!target && selmon)
-			target = current_vout(selmon);
+			target = focusvout(selmon);
 		if (!target)
 			return;
-		workspace_attach(target, ws);
-		vo = ws->vo;
+		wsattach(target, ws);
+		vout = ws->vout;
 	}
-	if (!vo)
+	if (!vout)
 		return;
-	wlr_log(WLR_DEBUG, "view request ws=%u vo=%s pointer=(%.1f,%.1f)",
-		ws->id,
-		vo_log_name(vo, (char[64]){0}, 64),
-		cursor ? cursor->x : 0.0,
-		cursor ? cursor->y : 0.0);
-	if (vo->mon) {
-		selmon = vo->mon;
-		selvo = vo;
+	if (vout->mon) {
+		selmon = vout->mon;
+		selvout = vout;
 		selws = ws;
 	}
-	workspace_activate(vo, ws, 1);
-	if (vo->mon) {
+	wsactivate(vout, ws, 1);
+	if (vout->mon) {
 		/* always update focus when switching to a different vout, even if
 		 * the workspace was already active on that vout */
-			if (vo->ws == ws && vo->mon == selmon) {
-				focusclient(focustop_vo(vo), 1);
+			if (vout->ws == ws && vout->mon == selmon) {
+				focusclient(focustopvout(vout), 1);
 			}
 			wlr_cursor_warp(cursor, NULL,
-				vo->geom.x + vo->geom.width / 2,
-				vo->geom.y + vo->geom.height / 2);
-			cursor_physical_sync();
+				vout->layout_geom.x + vout->layout_geom.width / 2,
+				vout->layout_geom.y + vout->layout_geom.height / 2);
+			cursorsync();
 			/* trigger focus update after cursor warp */
 			motionnotify(0, NULL, 0, 0, 0, 0);
 		}
@@ -3831,9 +3825,9 @@ void
 zoom(const Arg *arg)
 {
 	Client *c, *sel = focustop(selmon);
-	VirtualOutput *vo = current_vout(selmon);
+	VirtualOutput *vout = focusvout(selmon);
 
-	if (!sel || !vo || !vo->lt[vo->sellt]->arrange || sel->isfloating)
+	if (!sel || !vout || !vout->lt[vout->sellt]->arrange || sel->isfloating)
 		return;
 
 	/* Search for the first tiled window that is not sel, marking sel as
@@ -3862,51 +3856,51 @@ zoom(const Arg *arg)
 }
 
 static Workspace *
-workspace_for_id(unsigned int id)
+wsbyid(unsigned int id)
 {
 	return id < WORKSPACE_COUNT ? &workspaces[id] : NULL;
 }
 
 static VirtualOutput *
-monitor_first_vout(Monitor *m)
+firstvout(Monitor *m)
 {
-	VirtualOutput *vo;
+	VirtualOutput *vout;
 	if (!m || wl_list_empty(&m->vouts))
 		return NULL;
-	vo = wl_container_of(m->vouts.next, vo, link);
-	return vo;
+	vout = wl_container_of(m->vouts.next, vout, link);
+	return vout;
 }
 
 static VirtualOutput *
-current_vout(Monitor *m)
+focusvout(Monitor *m)
 {
-	VirtualOutput *vo;
+	VirtualOutput *vout;
 	if (!m)
 		return NULL;
-	vo = m->focus_vout;
-	if (!vo || vo->mon != m)
-		vo = monitor_first_vout(m);
-	return vo;
+	vout = m->focus_vout;
+	if (!vout || vout->mon != m)
+		vout = firstvout(m);
+	return vout;
 }
 
 static VirtualOutput *
-monitor_vout_at(Monitor *m, double lx, double ly)
+voutat(Monitor *m, double lx, double ly)
 {
-	VirtualOutput *vo;
+	VirtualOutput *vout;
 	if (!m)
 		return NULL;
-	wl_list_for_each(vo, &m->vouts, link) {
-		if (vo->geom.width <= 0 || vo->geom.height <= 0)
+	wl_list_for_each(vout, &m->vouts, link) {
+		if (vout->layout_geom.width <= 0 || vout->layout_geom.height <= 0)
 			continue;
-		if (lx >= vo->geom.x && lx < vo->geom.x + vo->geom.width &&
-			ly >= vo->geom.y && ly < vo->geom.y + vo->geom.height)
-			return vo;
+		if (lx >= vout->layout_geom.x && lx < vout->layout_geom.x + vout->layout_geom.width &&
+			ly >= vout->layout_geom.y && ly < vout->layout_geom.y + vout->layout_geom.height)
+			return vout;
 	}
-	return current_vout(m);
+	return focusvout(m);
 }
 
 static void
-monitor_configure_physical(Monitor *m, const MonitorRule *match)
+configurephys(Monitor *m, const MonitorRule *match)
 {
 	double width_mm;
 	double height_mm;
@@ -3944,7 +3938,7 @@ monitor_configure_physical(Monitor *m, const MonitorRule *match)
 }
 
 static void
-monitor_update_physical(Monitor *m)
+updatephys(Monitor *m)
 {
 	double width_mm;
 	double height_mm;
@@ -3958,70 +3952,70 @@ monitor_update_physical(Monitor *m)
 	if (!m->phys.width_configured) {
 		if (m->wlr_output->phys_width > 0)
 			width_mm = m->wlr_output->phys_width;
-		if (width_mm <= 0 && m->m.width > 0)
-			width_mm = m->m.width;
+		if (width_mm <= 0 && m->monitor_area.width > 0)
+			width_mm = m->monitor_area.width;
 	}
 	if (!m->phys.height_configured) {
 		if (m->wlr_output->phys_height > 0)
 			height_mm = m->wlr_output->phys_height;
-		if (height_mm <= 0 && m->m.height > 0)
-			height_mm = m->m.height;
+		if (height_mm <= 0 && m->monitor_area.height > 0)
+			height_mm = m->monitor_area.height;
 	}
 
 	m->phys.width_mm = width_mm;
 	m->phys.height_mm = height_mm;
 
-	if (m->m.width > 0 && width_mm > 0)
-		m->phys.mm_per_px_x = width_mm / m->m.width;
+	if (m->monitor_area.width > 0 && width_mm > 0)
+		m->phys.mm_per_px_x = width_mm / m->monitor_area.width;
 	else
 		m->phys.mm_per_px_x = 0;
-	if (m->m.height > 0 && height_mm > 0)
-		m->phys.mm_per_px_y = height_mm / m->m.height;
+	if (m->monitor_area.height > 0 && height_mm > 0)
+		m->phys.mm_per_px_y = height_mm / m->monitor_area.height;
 	else
 		m->phys.mm_per_px_y = 0;
 
 	if (!m->phys.origin_configured) {
 		if (m->phys.mm_per_px_x > 0)
-			m->phys.origin_x_mm = m->m.x * m->phys.mm_per_px_x;
+			m->phys.origin_x_mm = m->monitor_area.x * m->phys.mm_per_px_x;
 		else
 			m->phys.origin_x_mm = 0;
 		if (m->phys.mm_per_px_y > 0)
-			m->phys.origin_y_mm = m->m.y * m->phys.mm_per_px_y;
+			m->phys.origin_y_mm = m->monitor_area.y * m->phys.mm_per_px_y;
 		else
 			m->phys.origin_y_mm = 0;
 	}
 }
 
 static void
-monitor_update_vout_geometries(Monitor *m, const struct wlr_box *usable_area)
+arrangevout(Monitor *m, const struct wlr_box *usable_area)
 {
-	VirtualOutput *vo;
+	VirtualOutput *vout;
 	struct wlr_box base;
 	struct wlr_box geom;
 
 	if (!m)
 		return;
 
-	base = usable_area ? *usable_area : m->w;
+	base = usable_area ? *usable_area : m->window_area;
 
-	wl_list_for_each(vo, &m->vouts, link) {
+	wl_list_for_each(vout, &m->vouts, link) {
 		geom = base;
-		if (vo->rule.width > 0 && vo->rule.height > 0) {
-			geom.x = base.x + vo->rule.x;
-			geom.y = base.y + vo->rule.y;
-			geom.width = vo->rule.width;
-			geom.height = vo->rule.height;
+		if (vout->rule_geom.width > 0 && vout->rule_geom.height > 0) {
+			geom.x = base.x + vout->rule_geom.x;
+			geom.y = base.y + vout->rule_geom.y;
+			geom.width = vout->rule_geom.width;
+			geom.height = vout->rule_geom.height;
 		} else {
-			geom.x = base.x + vo->rule.x;
-			geom.y = base.y + vo->rule.y;
-			if (vo->rule.width > 0)
-				geom.width = vo->rule.width;
+			geom.x = base.x + vout->rule_geom.x;
+			geom.y = base.y + vout->rule_geom.y;
+			if (vout->rule_geom.width > 0)
+				geom.width = vout->rule_geom.width;
 			else
-				geom.width = base.width - vo->rule.x;
-			if (vo->rule.height > 0)
-				geom.height = vo->rule.height;
+				geom.width = base.width - vout->rule_geom.x;
+			if (vout->rule_geom.height > 0)
+				geom.height = vout->rule_geom.height;
 			else
-				geom.height = base.height - vo->rule.y;
+				geom.height = base.height - vout->rule_geom.y;
 		}
 
 		if (geom.x < base.x) {
@@ -4040,180 +4034,157 @@ monitor_update_vout_geometries(Monitor *m, const struct wlr_box *usable_area)
 		if (geom.width <= 0 || geom.height <= 0)
 			geom = base;
 
-		vo->geom = geom;
+		vout->layout_geom = geom;
 	}
-}
-
-static const char *
-vo_log_name(VirtualOutput *vo, char *buf, size_t len)
-{
-	const char *mon = "(null)";
-	const char *name = "(unnamed)";
-
-	if (!buf || !len)
-		return "(invalid)";
-
-	if (!vo) {
-		snprintf(buf, len, "(null)");
-		return buf;
-	}
-
-	if (vo->mon && vo->mon->wlr_output)
-		mon = vo->mon->wlr_output->name;
-	if (vo->name[0])
-		name = vo->name;
-
-	snprintf(buf, len, "%s:%s#%u", mon, name, vo->id);
-	return buf;
 }
 
 static VirtualOutput *
-create_virtual_output(Monitor *m, const char *name)
+createvout(Monitor *m, const char *name)
 {
 	static unsigned int next_id = 1;
-	VirtualOutput *vo;
+	VirtualOutput *vout;
 
 	if (!m)
 		return NULL;
-	vo = ecalloc(1, sizeof(*vo));
-	vo->mon = m;
-	vo->id = next_id++;
-	vo->scale = 1.f;
-	vo->transform = WL_OUTPUT_TRANSFORM_NORMAL;
-	vo->geom = m->w;
-	vo->rule = (struct wlr_box){0};
-	vo->mfact = 0.55f;
-	vo->nmaster = 1;
-	vo->sellt = 0;
-	vo->lt[0] = &layouts[0];
-	vo->lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : vo->lt[0];
-	strncpy(vo->name, name ? name : m->wlr_output->name, sizeof(vo->name) - 1);
-	vo->name[sizeof(vo->name) - 1] = '\0';
-	strncpy(vo->ltsymbol, vo->lt[vo->sellt]->symbol, LENGTH(vo->ltsymbol));
-	vo->ltsymbol[LENGTH(vo->ltsymbol) - 1] = '\0';
+	vout = ecalloc(1, sizeof(*vout));
+	vout->mon = m;
+	vout->id = next_id++;
+	vout->scale = 1.f;
+	vout->transform = WL_OUTPUT_TRANSFORM_NORMAL;
+	vout->layout_geom = m->window_area;
+	vout->rule_geom = (struct wlr_box){0};
+	vout->mfact = 0.55f;
+	vout->nmaster = 1;
+	vout->sellt = 0;
+	vout->lt[0] = &layouts[0];
+	vout->lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : vout->lt[0];
+	strncpy(vout->name, name ? name : m->wlr_output->name, sizeof(vout->name) - 1);
+	vout->name[sizeof(vout->name) - 1] = '\0';
+	strncpy(vout->ltsymbol, vout->lt[vout->sellt]->symbol, LENGTH(vout->ltsymbol));
+	vout->ltsymbol[LENGTH(vout->ltsymbol) - 1] = '\0';
 	if (wl_list_empty(&m->vouts))
-		wl_list_insert(&m->vouts, &vo->link);
+		wl_list_insert(&m->vouts, &vout->link);
 	else
-		wl_list_insert(m->vouts.prev, &vo->link);
-	wl_list_init(&vo->workspaces);
+		wl_list_insert(m->vouts.prev, &vout->link);
+	wl_list_init(&vout->workspaces);
 	if (!m->focus_vout)
-		m->focus_vout = vo;
-	return vo;
+		m->focus_vout = vout;
+	return vout;
 }
 
 static void
-destroy_virtual_output(VirtualOutput *vo)
+destroyvout(VirtualOutput *vout)
 {
 	Workspace *ws, *tmp;
 	Monitor *m;
-	if (!vo)
+	if (!vout)
 		return;
-	m = vo->mon;
-	if (vo->ws)
-		workspace_save_state(vo);
-	wl_list_for_each_safe(ws, tmp, &vo->workspaces, link) {
+	m = vout->mon;
+	if (vout->ws)
+		wssave(vout);
+	wl_list_for_each_safe(ws, tmp, &vout->workspaces, link) {
 		wl_list_remove(&ws->link);
 		wl_list_init(&ws->link);
-		ws->vo = NULL;
+		ws->vout = NULL;
 	}
-	wl_list_remove(&vo->link);
-	if (m && m->focus_vout == vo)
-		m->focus_vout = monitor_first_vout(m);
-	free(vo);
+	wl_list_remove(&vout->link);
+	if (m && m->focus_vout == vout)
+		m->focus_vout = firstvout(m);
+	free(vout);
 }
 
 static Client *
-focustop_vo(VirtualOutput *vo)
+focustopvout(VirtualOutput *vout)
 {
 	Client *c;
-	if (!vo)
+	if (!vout)
 		return NULL;
 	wl_list_for_each(c, &fstack, flink) {
-		if (c->ws && c->ws == vo->ws && !client_is_unmanaged(c))
+		if (c->ws && c->ws == vout->ws && !client_is_unmanaged(c))
 			return c;
 	}
 	wl_list_for_each(c, &clients, link) {
-		if (c->ws && c->ws == vo->ws)
+		if (c->ws && c->ws == vout->ws)
 			return c;
 	}
 	return NULL;
 }
 
 static Workspace *
-workspace_find_unassigned(void)
+wsfindfree(void)
 {
 	unsigned int i;
 	for (i = 0; i < WORKSPACE_COUNT; i++)
-		if (!workspaces[i].vo)
+		if (!workspaces[i].vout)
 			return &workspaces[i];
 	return NULL;
 }
 
 static void
-workspace_insert_sorted(VirtualOutput *vo, Workspace *ws)
+wsinsert(VirtualOutput *vout, Workspace *ws)
 {
 	Workspace *iter;
-	if (!vo)
+	if (!vout)
 		return;
-	if (wl_list_empty(&vo->workspaces)) {
-		wl_list_insert(&vo->workspaces, &ws->link);
+	if (wl_list_empty(&vout->workspaces)) {
+		wl_list_insert(&vout->workspaces, &ws->link);
 		return;
 	}
-	wl_list_for_each(iter, &vo->workspaces, link) {
+	wl_list_for_each(iter, &vout->workspaces, link) {
 		if (ws->id < iter->id) {
 			wl_list_insert(iter->link.prev, &ws->link);
 			return;
 		}
 	}
-	wl_list_insert(vo->workspaces.prev, &ws->link);
+	wl_list_insert(vout->workspaces.prev, &ws->link);
 }
 
 static void
-workspace_save_state(VirtualOutput *vo)
+wssave(VirtualOutput *vout)
 {
 	Workspace *ws;
-	if (!vo || !(ws = vo->ws))
+	if (!vout || !(ws = vout->ws))
 		return;
-	ws->state.mfact = vo->mfact;
-	ws->state.nmaster = vo->nmaster;
-	ws->state.sellt = vo->sellt;
-	ws->state.lt[0] = vo->lt[0];
-	ws->state.lt[1] = vo->lt[1];
+	ws->state.mfact = vout->mfact;
+	ws->state.nmaster = vout->nmaster;
+	ws->state.sellt = vout->sellt;
+	ws->state.lt[0] = vout->lt[0];
+	ws->state.lt[1] = vout->lt[1];
 }
 
 static void
-workspace_sync_from_state(VirtualOutput *vo, Workspace *ws)
+wsload(VirtualOutput *vout, Workspace *ws)
 {
-	if (!vo || !ws)
+	if (!vout || !ws)
 		return;
-	vo->ws = ws;
-	vo->mfact = ws->state.mfact;
-	vo->nmaster = ws->state.nmaster;
-	vo->sellt = ws->state.sellt;
-	vo->lt[0] = ws->state.lt[0] ? ws->state.lt[0] : &layouts[0];
-	vo->lt[1] = ws->state.lt[1] ? ws->state.lt[1] : vo->lt[0];
-	if (vo->sellt > 1)
-		vo->sellt = 0;
-	strncpy(vo->ltsymbol, vo->lt[vo->sellt]->symbol, LENGTH(vo->ltsymbol));
+	vout->ws = ws;
+	vout->mfact = ws->state.mfact;
+	vout->nmaster = ws->state.nmaster;
+	vout->sellt = ws->state.sellt;
+	vout->lt[0] = ws->state.lt[0] ? ws->state.lt[0] : &layouts[0];
+	vout->lt[1] = ws->state.lt[1] ? ws->state.lt[1] : vout->lt[0];
+	if (vout->sellt > 1)
+		vout->sellt = 0;
+	strncpy(vout->ltsymbol, vout->lt[vout->sellt]->symbol, LENGTH(vout->ltsymbol));
 }
 
 static Workspace *
-workspace_first(VirtualOutput *vo)
+wsfirst(VirtualOutput *vout)
 {
 	Workspace *ws;
-	if (!vo || wl_list_empty(&vo->workspaces))
+	if (!vout || wl_list_empty(&vout->workspaces))
 		return NULL;
-	ws = wl_container_of(vo->workspaces.next, ws, link);
+	ws = wl_container_of(vout->workspaces.next, ws, link);
 	return ws;
 }
 
 static Workspace *
-workspace_next_on_output(VirtualOutput *vo, Workspace *exclude)
+wsnext(VirtualOutput *vout, Workspace *exclude)
 {
 	Workspace *ws;
-	if (!vo)
+	if (!vout)
 		return NULL;
-	wl_list_for_each(ws, &vo->workspaces, link) {
+	wl_list_for_each(ws, &vout->workspaces, link) {
 		if (ws != exclude)
 			return ws;
 	}
@@ -4221,96 +4192,84 @@ workspace_next_on_output(VirtualOutput *vo, Workspace *exclude)
 }
 
 static void
-workspace_attach(VirtualOutput *vo, Workspace *ws)
+wsattach(VirtualOutput *vout, Workspace *ws)
 {
 	VirtualOutput *old;
-	char newbuf[64], oldbuf[64];
-	if (!vo || !ws)
+	if (!vout || !ws)
 		return;
-	if (ws->vo == vo)
+	if (ws->vout == vout)
 		return;
-	old = ws->vo;
+	old = ws->vout;
 	if (old) {
 		if (old->ws == ws)
-			workspace_save_state(old);
+			wssave(old);
 		wl_list_remove(&ws->link);
 	}
-	ws->vo = vo;
-	workspace_insert_sorted(vo, ws);
-	wlr_log(WLR_DEBUG, "ws_attach id=%u old=%s new=%s", ws->id,
-		vo_log_name(old, oldbuf, sizeof(oldbuf)),
-		vo_log_name(vo, newbuf, sizeof(newbuf)));
+	ws->vout = vout;
+	wsinsert(vout, ws);
 }
 
 static void
-workspace_activate(VirtualOutput *vo, Workspace *ws, int focus_change)
+wsactivate(VirtualOutput *vout, Workspace *ws, int focus_change)
 {
 	Workspace *old;
 	Monitor *m;
-	char vbuf[64];
-	if (!vo)
+	/* char vbuf[64]; - unused */
+	if (!vout)
 		return;
-	m = vo->mon;
+	m = vout->mon;
 	if (m)
-		m->focus_vout = vo;
-	old = vo->ws;
+		m->focus_vout = vout;
+	old = vout->ws;
 	if (old == ws)
 		return;
-	wlr_log(WLR_DEBUG, "ws_activate vo=%s old_ws=%u new_ws=%u focus=%d",
-		vo_log_name(vo, vbuf, sizeof(vbuf)),
-		old ? old->id : 0,
-		ws ? ws->id : 0,
-		focus_change);
-	workspace_save_state(vo);
-	if (ws && ws->vo != vo)
-		workspace_attach(vo, ws);
+	wssave(vout);
+	if (ws && ws->vout != vout)
+		wsattach(vout, ws);
 	if (ws) {
-		workspace_sync_from_state(vo, ws);
+		wsload(vout, ws);
 		if (m == selmon) {
 			selws = ws;
-			selvo = vo;
+			selvout = vout;
 		}
 		arrange(m);
 		if (focus_change)
-			focusclient(focustop_vo(vo), 1);
+			focusclient(focustopvout(vout), 1);
 	} else {
-		vo->ws = NULL;
+		vout->ws = NULL;
 		if (m == selmon) {
 			selws = NULL;
-			selvo = vo;
+			selvout = vout;
 		}
 		arrange(m);
 		if (focus_change)
-			focusclient(focustop_vo(vo), 1);
+			focusclient(focustopvout(vout), 1);
 	}
 }
 
 static void
-workspace_move_to_output(Workspace *ws, VirtualOutput *vo)
+wsmoveto(Workspace *ws, VirtualOutput *vout)
 {
 	VirtualOutput *old;
 	Workspace *fallback;
 	Monitor *old_mon;
-	char newbuf[64], oldbuf[64];
-	if (!ws || !vo || ws->vo == vo)
+	/* char newbuf[64], oldbuf[64]; - unused */
+	if (!ws || !vout || ws->vout == vout)
 		return;
-	old = ws->vo;
+	old = ws->vout;
 	old_mon = old ? old->mon : NULL;
-	wlr_log(WLR_DEBUG, "ws_move id=%u from=%s to=%s", ws->id,
-		vo_log_name(old, oldbuf, sizeof(oldbuf)),
-		vo_log_name(vo, newbuf, sizeof(newbuf)));
-	workspace_attach(vo, ws);
-	workspace_activate(vo, ws, 1);
+	wsattach(vout, ws);
+	wsactivate(vout, ws, 1);
 	if (old) {
-		fallback = workspace_next_on_output(old, ws);
+		fallback = wsnext(old, ws);
 		if (!fallback)
-			fallback = workspace_first(old);
+			fallback = wsfirst(old);
 		if (!fallback) {
-			fallback = workspace_find_unassigned();
+			fallback = wsfindfree();
 			if (fallback)
-				workspace_attach(old, fallback);
+				wsattach(old, fallback);
 		}
-		workspace_activate(old, fallback, old_mon && old_mon == selmon);
+		wsactivate(old, fallback, old_mon && old_mon == selmon);
 	}
 }
 
@@ -4339,6 +4298,8 @@ configurex11(struct wl_listener *listener, void *data)
 {
 	Client *c = wl_container_of(listener, c, configure);
 	struct wlr_xwayland_surface_configure_event *event = data;
+	VirtualOutput *vout;
+
 	if (!client_surface(c) || !client_surface(c)->mapped) {
 		wlr_xwayland_surface_configure(c->surface.xwayland,
 				event->x, event->y, event->width, event->height);
@@ -4350,8 +4311,8 @@ configurex11(struct wl_listener *listener, void *data)
 				event->x, event->y, event->width, event->height);
 		return;
 	}
-	VirtualOutput *vo = CLIENT_VO(c);
-	if ((c->isfloating && c != grabc) || !vo || !vo->lt[vo->sellt]->arrange) {
+	vout = CLIENT_VOUT(c);
+	if ((c->isfloating && c != grabc) || !vout || !vout->lt[vout->sellt]->arrange) {
 		resize(c, (struct wlr_box){.x = event->x - c->bw,
 				.y = event->y - c->bw, .width = event->width + c->bw * 2,
 				.height = event->height + c->bw * 2}, 0);
