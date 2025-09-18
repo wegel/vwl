@@ -3213,12 +3213,14 @@ setworkspace(Client *c, Workspace *ws)
 	Monitor *oldmon = c->mon;
 	VirtualOutput *vout = ws ? ws->vout : NULL;
 	Workspace *oldws = c->ws;
+	Monitor *newmon = vout ? vout->mon : NULL;
+	int workspace_changed = oldws != ws;
 
-	if (oldws == ws)
+	if (!workspace_changed && oldmon == newmon)
 		return;
 
 	c->ws = ws;
-	c->mon = vout? vout->mon : NULL;
+	c->mon = newmon;
 	c->prev = c->geom;
 
 	if (oldmon && oldmon != c->mon)
@@ -3230,7 +3232,7 @@ setworkspace(Client *c, Workspace *ws)
 		setfloating(c, c->isfloating);
 	}
 
-	if (selmon)
+	if (selmon && workspace_changed)
 		focusclient(focustop(selmon), 1);
 }
 
@@ -4431,6 +4433,13 @@ wsmoveto(Workspace *ws, VirtualOutput *vout)
 	old_mon = old ? old->mon : NULL;
 	wsattach(vout, ws);
 	wsactivate(vout, ws, 1);
+	if (ws) {
+		Client *c;
+		wl_list_for_each(c, &clients, link) {
+			if (c->ws == ws)
+				setworkspace(c, ws);
+		}
+	}
 	if (old) {
 		fallback = wsnext(old, ws);
 		if (!fallback)
