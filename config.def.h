@@ -20,6 +20,9 @@ static const enum TabHdrPos tabhdr_position = TABHDR_TOP;
 static const float tabhdr_active_color[] = COLOR(0x005577ff);
 static const float tabhdr_inactive_color[] = COLOR(0x444444ff);
 
+/* cursor */
+static const int cursor_size = 24;
+
 /* Physical cursor continuity */
 static const int enable_physical_cursor_gap_jumps = 1;
 

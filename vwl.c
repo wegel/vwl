@@ -1392,6 +1392,8 @@ createmon(struct wl_listener *listener, void *data)
 	wlr_output_commit_state(wlr_output, &state);
 	wlr_output_state_finish(&state);
 
+	wlr_xcursor_manager_load(cursor_mgr, wlr_output->scale);
+
 	first = wl_list_empty(&mons);
 	wl_list_insert(&mons, &m->link);
 	if (!selmon)
@@ -2780,6 +2782,9 @@ apply_or_test:
 		ok &= test ? wlr_output_test_state(wlr_output, &state)
 				: wlr_output_commit_state(wlr_output, &state);
 
+		if (!test && ok && wlr_output->enabled)
+			wlr_xcursor_manager_load(cursor_mgr, wlr_output->scale);
+
 		/* Don't move monitors if position wouldn't change. This avoids
 		 * wlroots marking the output as manually configured.
 		 * wlr_output_layout_add does not like disabled outputs */
@@ -3546,8 +3551,12 @@ setup(void)
 	 * Xcursor themes to source cursor images from and makes sure that cursor
 	 * images are available at all scale factors on the screen (necessary for
 	 * HiDPI support). Scaled cursors will be loaded with each output. */
-	cursor_mgr = wlr_xcursor_manager_create(NULL, 24);
-	setenv("XCURSOR_SIZE", "24", 1);
+	{
+		char cursor_size_env[16];
+		cursor_mgr = wlr_xcursor_manager_create(NULL, cursor_size);
+		snprintf(cursor_size_env, sizeof(cursor_size_env), "%d", cursor_size);
+		setenv("XCURSOR_SIZE", cursor_size_env, 1);
+	}
 
 	/*
 	 * wlr_cursor *only* displays an image on screen. It does not move around
