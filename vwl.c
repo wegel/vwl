@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -216,6 +217,8 @@ struct Workspace {
 	struct wl_list link; /* VirtualOutput.workspaces */
 	VirtualOutput *vout;
 	WorkspaceState state;
+	char orphan_vout_name[WORKSPACE_NAME_LEN];
+	char orphan_monitor_name[WORKSPACE_NAME_LEN];
 	bool was_orphaned; /* Track if workspace was orphaned during monitor removal */
 };
 
@@ -477,6 +480,7 @@ static void wsactivate(VirtualOutput *vout, Workspace *ws, int focus_change);
 static void wsattach(VirtualOutput *vout, Workspace *ws);
 static Workspace *wsfirst(VirtualOutput *vout);
 static VirtualOutput *firstvout(Monitor *m);
+static VirtualOutput *findvoutbyname(Monitor *m, const char *name);
 static void wsmoveto(Workspace *ws, VirtualOutput *vout);
 static VirtualOutput *voutat(Monitor *m, double lx, double ly);
 static void arrangevout(Monitor *m, const struct wlr_box *usable_area);
@@ -1074,6 +1078,7 @@ closemon(Monitor *m)
 	Monitor *target;
 	VirtualOutput *target_vout = NULL;
 	int i = 0, nmons = wl_list_length(&mons);
+	vt_recovery_mode = true;
 	if (!nmons) {
 		selmon = NULL;
 	} else if (m == selmon) {
@@ -1092,15 +1097,24 @@ closemon(Monitor *m)
 	wl_list_for_each_safe(vout, vtmp, &m->vouts, link) {
 		wl_list_for_each_safe(ws, wtmp, &vout->workspaces, link) {
 			if (target_vout) {
+				if (!ws->orphan_vout_name[0])
+					snprintf(ws->orphan_vout_name, sizeof(ws->orphan_vout_name), "%s", vout->name);
+				if (!ws->orphan_monitor_name[0] && m && m->wlr_output)
+					snprintf(ws->orphan_monitor_name, sizeof(ws->orphan_monitor_name), "%s", m->wlr_output->name);
+				ws->was_orphaned = true;
 				wsmoveto(ws, target_vout);
 				/* target_vout may gain focus workspace; keep pointer current */
 				target_vout = focusvout(target);
 			} else {
-					wssave(vout);
+				wssave(vout);
 				wl_list_remove(&ws->link);
 				wl_list_init(&ws->link);
 				ws->vout = NULL;
 				ws->was_orphaned = true;
+				if (!ws->orphan_vout_name[0])
+					snprintf(ws->orphan_vout_name, sizeof(ws->orphan_vout_name), "%s", vout->name);
+				if (!ws->orphan_monitor_name[0] && m && m->wlr_output)
+					snprintf(ws->orphan_monitor_name, sizeof(ws->orphan_monitor_name), "%s", m->wlr_output->name);
 			}
 		}
 		destroyvout(vout);
@@ -1353,6 +1367,7 @@ createmon(struct wl_listener *listener, void *data)
 	VirtualOutput *first_vout;
 	const VirtualOutputRule *matched_rules[LENGTH(vorules)];
 	int first;
+	bool found_orphans = false;
 
 	if (!wlr_output_init_render(wlr_output, alloc, drw))
 		return;
@@ -1494,13 +1509,17 @@ createmon(struct wl_listener *listener, void *data)
 
 	if (first) {
 		Workspace *default_ws = &workspaces[DEFAULT_WORKSPACE_ID];
-		if (first_vout && !default_ws->vout)
-			wsattach(first_vout, default_ws);
-		if (first_vout)
-			wsactivate(first_vout, default_ws, 0);
-		selws = default_ws;
+		if (!vt_recovery_mode) {
+			if (first_vout && !default_ws->vout)
+				wsattach(first_vout, default_ws);
+			if (first_vout)
+				wsactivate(first_vout, default_ws, 0);
+			selws = default_ws;
+		} else {
+			selws = NULL;
+		}
 		selvout = first_vout;
-	} else {
+	} else if (!vt_recovery_mode) {
 		wl_list_for_each(vout, &m->vouts, link) {
 			Workspace *first_ws = wsfirst(vout);
 			if (!first_ws) {
@@ -1515,30 +1534,36 @@ createmon(struct wl_listener *listener, void *data)
 	}
 
 	/* Reattach any orphaned workspaces to this monitor */
-	bool found_orphans = false;
 	for (i = 0; i < WORKSPACE_COUNT; i++) {
 		Workspace *ws = &workspaces[i];
+		VirtualOutput *target_vout;
+		Client *client;
 		/* Only reattach workspaces that were explicitly orphaned */
-		if (ws->was_orphaned) {
-			found_orphans = true;
-			if (first_vout) {
-				Client *client;
-				wsattach(first_vout, ws);
-				wsload(first_vout, ws);
-				ws->was_orphaned = false; /* Clear the flag after reattachment */
-	
-				/* Update monitor pointers for all clients on this workspace */
-				wl_list_for_each(client, &clients, link) {
-					if (client->ws == ws && client->mon == NULL) {
-						client->mon = m;
-						}
-				}
-			}
+		if (!ws->was_orphaned)
+			continue;
+		if (ws->orphan_monitor_name[0] && strcmp(ws->orphan_monitor_name, m->wlr_output->name))
+			continue;
+		found_orphans = true;
+		target_vout = findvoutbyname(m, ws->orphan_vout_name);
+		if (!target_vout)
+			target_vout = first_vout;
+		if (!target_vout)
+			continue;
+		wsattach(target_vout, ws);
+		wsload(target_vout, ws);
+		ws->was_orphaned = false; /* Clear the flag after reattachment */
+		ws->orphan_vout_name[0] = '\0';
+		ws->orphan_monitor_name[0] = '\0';
+		/* Update monitor pointers for all clients on this workspace */
+		wl_list_for_each(client, &clients, link) {
+			if (client->ws == ws && client->mon == NULL)
+				client->mon = target_vout->mon;
 		}
 	}
 
-	if (found_orphans)
+	if (found_orphans) {
 		vt_recovery_mode = true;
+	}
 
 	if (selmon == m) {
 		selvout = focusvout(m);
@@ -2500,10 +2525,6 @@ mapnotify(struct wl_listener *listener, void *data)
 	Monitor *m;
 	int i;
 
-	/* Clear VT recovery mode when first client remaps successfully */
-	if (vt_recovery_mode && c->ws)
-		vt_recovery_mode = false;
-
 	/* Create scene tree for this client and its border */
 	c->scene = client_surface(c)->data = wlr_scene_tree_create(layers[LyrTile]);
 	/* Enabled later by a call to arrange() */
@@ -2556,6 +2577,8 @@ mapnotify(struct wl_listener *listener, void *data)
 	} else {
 		applyrules(c);
 	}
+	if (vt_recovery_mode && c->ws)
+		vt_recovery_mode = false;
 	updateipc();
 
 unset_fullscreen:
@@ -3371,8 +3394,6 @@ setworkspace(Client *c, Workspace *ws)
 	Workspace *oldws = c->ws;
 	Monitor *newmon = vout ? vout->mon : NULL;
 	int workspace_changed = oldws != ws;
-
-
 	if (!workspace_changed && oldmon == newmon)
 		return;
 
@@ -3462,6 +3483,8 @@ setup(void)
 		ws->state.lt[0] = defrule->lt ? defrule->lt : &layouts[0];
 		ws->state.lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : ws->state.lt[0];
 		ws->was_orphaned = false;
+		ws->orphan_vout_name[0] = '\0';
+		ws->orphan_monitor_name[0] = '\0';
 	}
 	selws = &workspaces[DEFAULT_WORKSPACE_ID];
 
@@ -3913,9 +3936,8 @@ unmapnotify(struct wl_listener *listener, void *data)
 	} else {
 		wl_list_remove(&c->link);
 		/* Preserve workspace during VT recovery or when vout is NULL */
-		if (!vt_recovery_mode && c->ws && c->ws->vout) {
+		if (!vt_recovery_mode && c->ws && c->ws->vout)
 			setworkspace(c, NULL);
-		}
 		wl_list_remove(&c->flink);
 	}
 
@@ -4016,7 +4038,7 @@ updatemons(struct wl_listener *listener, void *data)
 	if (selmon && selmon->wlr_output->enabled) {
 		VirtualOutput *vout = focusvout(selmon);
 		wl_list_for_each(c, &clients, link) {
-			if (!c->mon && client_surface(c)->mapped && vout && vout->ws)
+			if (!vt_recovery_mode && !c->mon && client_surface(c)->mapped && vout && vout->ws)
 				setworkspace(c, vout->ws);
 		}
 		focusclient(focustop(selmon), 1);
@@ -4223,18 +4245,34 @@ static VirtualOutput *
 firstvout(Monitor *m)
 {
 	VirtualOutput *vout;
-	if (!m || wl_list_empty(&m->vouts))
+	if (!m || wl_list_empty(&m->vouts)) {
 		return NULL;
+	}
 	vout = wl_container_of(m->vouts.next, vout, link);
 	return vout;
+}
+
+static VirtualOutput *
+findvoutbyname(Monitor *m, const char *name)
+{
+	VirtualOutput *vout;
+	if (!m || !name || !*name)
+		return NULL;
+	wl_list_for_each(vout, &m->vouts, link) {
+		if (!strcmp(vout->name, name)) {
+			return vout;
+		}
+	}
+	return NULL;
 }
 
 static VirtualOutput *
 focusvout(Monitor *m)
 {
 	VirtualOutput *vout;
-	if (!m)
+	if (!m) {
 		return NULL;
+	}
 	vout = m->focus_vout;
 	if (!vout || vout->mon != m)
 		vout = firstvout(m);
@@ -4506,7 +4544,11 @@ static void
 wssave(VirtualOutput *vout)
 {
 	Workspace *ws;
-	if (!vout || !(ws = vout->ws))
+	if (!vout) {
+		return;
+	}
+	ws = vout->ws;
+	if (!ws)
 		return;
 	ws->state.mfact = vout->mfact;
 	ws->state.nmaster = vout->nmaster;
