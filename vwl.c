@@ -216,6 +216,7 @@ struct Workspace {
 	struct wl_list link; /* VirtualOutput.workspaces */
 	VirtualOutput *vout;
 	WorkspaceState state;
+	bool was_orphaned; /* Track if workspace was orphaned during monitor removal */
 };
 
 struct VirtualOutput {
@@ -539,6 +540,7 @@ static struct wlr_output_layout *output_layout;
 static struct wlr_box sgeom;
 static struct wl_list mons;
 static Monitor *selmon;
+static bool vt_recovery_mode = false; /* Track if we're recovering from VT switch */
 static Workspace workspaces[WORKSPACE_COUNT];
 static Workspace *selws;
 static VirtualOutput *selvout;
@@ -1094,10 +1096,11 @@ closemon(Monitor *m)
 				/* target_vout may gain focus workspace; keep pointer current */
 				target_vout = focusvout(target);
 			} else {
-				wssave(vout);
+					wssave(vout);
 				wl_list_remove(&ws->link);
 				wl_list_init(&ws->link);
 				ws->vout = NULL;
+				ws->was_orphaned = true;
 			}
 		}
 		destroyvout(vout);
@@ -1510,6 +1513,33 @@ createmon(struct wl_listener *listener, void *data)
 				wsactivate(vout, first_ws, 0);
 		}
 	}
+
+	/* Reattach any orphaned workspaces to this monitor */
+	bool found_orphans = false;
+	for (i = 0; i < WORKSPACE_COUNT; i++) {
+		Workspace *ws = &workspaces[i];
+		/* Only reattach workspaces that were explicitly orphaned */
+		if (ws->was_orphaned) {
+			found_orphans = true;
+			if (first_vout) {
+				Client *client;
+				wsattach(first_vout, ws);
+				wsload(first_vout, ws);
+				ws->was_orphaned = false; /* Clear the flag after reattachment */
+	
+				/* Update monitor pointers for all clients on this workspace */
+				wl_list_for_each(client, &clients, link) {
+					if (client->ws == ws && client->mon == NULL) {
+						client->mon = m;
+						}
+				}
+			}
+		}
+	}
+
+	if (found_orphans)
+		vt_recovery_mode = true;
+
 	if (selmon == m) {
 		selvout = focusvout(m);
 		selws = selvout ? selvout->ws : NULL;
@@ -2470,6 +2500,10 @@ mapnotify(struct wl_listener *listener, void *data)
 	Monitor *m;
 	int i;
 
+	/* Clear VT recovery mode when first client remaps successfully */
+	if (vt_recovery_mode && c->ws)
+		vt_recovery_mode = false;
+
 	/* Create scene tree for this client and its border */
 	c->scene = client_surface(c)->data = wlr_scene_tree_create(layers[LyrTile]);
 	/* Enabled later by a call to arrange() */
@@ -3338,6 +3372,7 @@ setworkspace(Client *c, Workspace *ws)
 	Monitor *newmon = vout ? vout->mon : NULL;
 	int workspace_changed = oldws != ws;
 
+
 	if (!workspace_changed && oldmon == newmon)
 		return;
 
@@ -3426,6 +3461,7 @@ setup(void)
 		ws->state.sellt = 0;
 		ws->state.lt[0] = defrule->lt ? defrule->lt : &layouts[0];
 		ws->state.lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : ws->state.lt[0];
+		ws->was_orphaned = false;
 	}
 	selws = &workspaces[DEFAULT_WORKSPACE_ID];
 
@@ -3876,7 +3912,10 @@ unmapnotify(struct wl_listener *listener, void *data)
 		}
 	} else {
 		wl_list_remove(&c->link);
-		setworkspace(c, NULL);
+		/* Preserve workspace during VT recovery or when vout is NULL */
+		if (!vt_recovery_mode && c->ws && c->ws->vout) {
+			setworkspace(c, NULL);
+		}
 		wl_list_remove(&c->flink);
 	}
 
