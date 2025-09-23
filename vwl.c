@@ -2982,8 +2982,8 @@ ipc_output_printstatus_to(IPCOutput *ipc_output)
 	Client *c, *focused;
 	Workspace *ws;
 	VirtualOutput *vout, *active_vout;
-	unsigned int count, vcount;
-	int urgent, vurgent;
+	unsigned int count;
+	int urgent;
 	int is_tabbed = 0, tab_count = 0, tab_index = 0;
 
 	active_vout = focusvout(monitor);
@@ -3059,21 +3059,74 @@ ipc_output_printstatus_to(IPCOutput *ipc_output)
 	zvwl_ipc_output_v1_send_virtual_output_begin(ipc_output->resource);
 
 	wl_list_for_each(vout, &monitor->vouts, link) {
-		Workspace *vows = vout->ws;
-		vcount = 0;
-		vurgent = 0;
-		wl_list_for_each(c, &clients, link) {
-			if (c->ws != vows)
+		Workspace *ws_iter;
+		int ws_idx;
+		for (ws_idx = 0; ws_idx < WORKSPACE_COUNT; ws_idx++) {
+			const Layout *layout = NULL;
+			unsigned int wcount = 0;
+			int wurgent = 0;
+			ws_iter = &workspaces[ws_idx];
+			if (ws_iter->vout != vout)
 				continue;
-			vcount++;
-			if (c->isurgent)
-				vurgent = 1;
+			wl_list_for_each(c, &clients, link) {
+				if (c->ws != ws_iter)
+					continue;
+				wcount++;
+				if (c->isurgent)
+					wurgent = 1;
+			}
+			if (!wcount)
+				continue;
+			if (ws_iter->state.sellt < LENGTH(ws_iter->state.lt))
+				layout = ws_iter->state.lt[ws_iter->state.sellt];
+			if (!layout)
+				layout = vout->lt[vout->sellt];
+			zvwl_ipc_output_v1_send_virtual_output(ipc_output->resource,
+				vout->id, vout->name, ws_iter == vout->ws,
+				ws_iter->id, ws_iter->name,
+				wcount, wurgent,
+				layout ? layout->symbol : vout->ltsymbol);
 		}
+	}
 
-		zvwl_ipc_output_v1_send_virtual_output(ipc_output->resource,
-			vout->id, vout->name, vout == active_vout,
-			vows ? vows->id : 0, vows ? vows->name : "",
-			vcount, vurgent, vout->ltsymbol);
+	/** emit additional workspaces on the selected monitor (even if
+	 * they currently have no vout) */
+	if (monitor == selmon) {
+		int ws_idx;
+		for (ws_idx = 0; ws_idx < WORKSPACE_COUNT; ws_idx++) {
+			Workspace *ws_iter = &workspaces[ws_idx];
+			VirtualOutput *home = ws_iter->vout;
+			Monitor *home_mon = home ? home->mon : NULL;
+			const Layout *layout = NULL;
+			unsigned int wcount = 0;
+			int wurgent = 0;
+
+			if (home_mon && home_mon != monitor)
+				continue;
+
+			wl_list_for_each(c, &clients, link) {
+				if (c->ws != ws_iter)
+					continue;
+				wcount++;
+				if (c->isurgent)
+					wurgent = 1;
+			}
+			if (!wcount)
+				continue;
+
+			if (ws_iter->state.sellt < LENGTH(ws_iter->state.lt))
+				layout = ws_iter->state.lt[ws_iter->state.sellt];
+			if (!layout && home)
+				layout = home->lt[home->sellt];
+
+			zvwl_ipc_output_v1_send_virtual_output(ipc_output->resource,
+				home ? home->id : 0,
+				home ? home->name : "",
+				home && home->ws == ws_iter,
+				ws_iter->id, ws_iter->name,
+				wcount, wurgent,
+				layout ? layout->symbol : (home ? home->ltsymbol : ""));
+		}
 	}
 
 	zvwl_ipc_output_v1_send_virtual_output_end(ipc_output->resource);
