@@ -27,7 +27,7 @@ static const int cursor_size = 24;
 static const int enable_physical_cursor_gap_jumps = 1;
 
 /* logging */
-static int log_level = WLR_ERROR;
+__attribute__((unused)) static int log_level = WLR_ERROR;
 
 /* NOTE: ALWAYS keep a rule declared even if you don't use rules (e.g leave at least one example) */
 static const Rule rules[] = {

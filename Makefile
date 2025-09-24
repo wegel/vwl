@@ -18,12 +18,13 @@ LDLIBS    = `$(PKG_CONFIG) --libs $(PKGS)` $(WLR_LIBS) -lm $(LIBS)
 
 all: vwl
 
-vwl: vwl.o util.o vwl-ipc-unstable-v1-protocol.o
-	$(CC) vwl.o util.o vwl-ipc-unstable-v1-protocol.o $(DWLCFLAGS) $(LDFLAGS) $(LDLIBS) -o $@
-vwl.o: vwl.c client.h config.h config.mk cursor-shape-v1-protocol.h \
+vwl: vwl.o plumbing.o util.o vwl-ipc-unstable-v1-protocol.o
+	$(CC) vwl.o plumbing.o util.o vwl-ipc-unstable-v1-protocol.o $(DWLCFLAGS) $(LDFLAGS) $(LDLIBS) -o $@
+vwl.o: vwl.c vwl.h client.h config.h config.mk cursor-shape-v1-protocol.h \
 	pointer-constraints-unstable-v1-protocol.h wlr-layer-shell-unstable-v1-protocol.h \
 	wlr-output-power-management-unstable-v1-protocol.h xdg-shell-protocol.h \
 	vwl-ipc-unstable-v1-protocol.h
+plumbing.o: plumbing.c vwl.h util.h config.h
 util.o: util.c util.h
 vwl-ipc-unstable-v1-protocol.o: vwl-ipc-unstable-v1-protocol.c vwl-ipc-unstable-v1-protocol.h
 
