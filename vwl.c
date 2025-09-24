@@ -726,11 +726,6 @@ createmon(struct wl_listener *listener, void *data)
 		VirtualOutput *new_vout;
 		if (vr) {
 			new_vout = createvout(m, vr->name);
-			if (match) {
-				new_vout->nmaster = match->nmaster;
-				new_vout->lt[0] = match->lt ? match->lt : new_vout->lt[0];
-				new_vout->lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : new_vout->lt[0];
-			}
 			if (vr->mfact > 0)
 				new_vout->mfact = vr->mfact;
 			if (vr->nmaster > 0)
@@ -740,8 +735,6 @@ createmon(struct wl_listener *listener, void *data)
 			if (vr->lt_secondary)
 				new_vout->lt[1] = vr->lt_secondary;
 			new_vout->sellt = 0;
-			new_vout->scale = vr->scale > 0 ? vr->scale : 1.f;
-			new_vout->transform = vr->transform;
 			new_vout->rule_geom = (struct wlr_box){
 				.x = vr->x,
 				.y = vr->y,
@@ -752,11 +745,6 @@ createmon(struct wl_listener *listener, void *data)
 			new_vout->ltsymbol[LENGTH(new_vout->ltsymbol) - 1] = '\0';
 		} else {
 			new_vout = createvout(m, NULL);
-			if (match) {
-				new_vout->nmaster = match->nmaster;
-				new_vout->lt[0] = match->lt ? match->lt : new_vout->lt[0];
-				new_vout->lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : new_vout->lt[0];
-			}
 		}
 		if (!first_vout)
 			first_vout = new_vout;
@@ -1604,7 +1592,6 @@ setup(void)
 {
 	int drm_fd, i, sig[] = {SIGCHLD, SIGINT, SIGTERM, SIGPIPE};
 	struct sigaction sa = {.sa_flags = SA_RESTART, .sa_handler = handlesig};
-	const MonitorRule *defrule;
 	const VirtualOutputRule *defvorule = NULL;
 	size_t j;
 	sigemptyset(&sa.sa_mask);
@@ -1634,7 +1621,6 @@ setup(void)
 	drag_icon = wlr_scene_tree_create(&scene->tree);
 	wlr_scene_node_place_below(&drag_icon->node, &layers[LyrBlock]->node);
 
-	defrule = &monrules[0];
 	for (j = 0; j < LENGTH(vorules); j++) {
 		if (!vorules[j].monitor) {
 			defvorule = &vorules[j];
@@ -1648,10 +1634,11 @@ setup(void)
 		ws->vout = NULL;
 		wl_list_init(&ws->link);
 		ws->state.mfact = defvorule && defvorule->mfact > 0 ? defvorule->mfact : 0.55f;
-		ws->state.nmaster = defrule->nmaster;
+		ws->state.nmaster = defvorule && defvorule->nmaster > 0 ? defvorule->nmaster : 1;
 		ws->state.sellt = 0;
-		ws->state.lt[0] = defrule->lt ? defrule->lt : &layouts[0];
-		ws->state.lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : ws->state.lt[0];
+		ws->state.lt[0] = defvorule && defvorule->lt_primary ? defvorule->lt_primary : &layouts[0];
+		ws->state.lt[1] = defvorule && defvorule->lt_secondary ? defvorule->lt_secondary :
+			(LENGTH(layouts) > 1) ? &layouts[1] : ws->state.lt[0];
 		ws->was_orphaned = false;
 		ws->orphan_vout_name[0] = '\0';
 		ws->orphan_monitor_name[0] = '\0';
@@ -2487,8 +2474,6 @@ createvout(Monitor *m, const char *name)
 	vout = ecalloc(1, sizeof(*vout));
 	vout->mon = m;
 	vout->id = next_id++;
-	vout->scale = 1.f;
-	vout->transform = WL_OUTPUT_TRANSFORM_NORMAL;
 	vout->layout_geom = m->window_area;
 	vout->rule_geom = (struct wlr_box){0};
 	vout->mfact = default_rule && default_rule->mfact > 0 ? default_rule->mfact : 0.55f;

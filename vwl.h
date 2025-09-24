@@ -181,8 +181,6 @@ struct VirtualOutput {
 	struct wlr_scene_tree *tabhdr;
 	struct wlr_box layout_geom;       /* layout-relative geometry */
 	struct wlr_box rule_geom;         /* rule geometry in physical pixels */
-	enum wl_output_transform transform;
-	float scale;
 	float mfact;
 	int nmaster;
 	const Layout *lt[2];
@@ -232,9 +230,7 @@ struct CursorPhysical {
 
 struct MonitorRule {
 	const char *name;
-	int nmaster;
 	float scale;
-	const Layout *lt;
 	enum wl_output_transform rr;
 	int x, y;
 	struct {
@@ -256,8 +252,6 @@ struct VirtualOutputRule {
 	int nmaster;
 	const Layout *lt_primary;
 	const Layout *lt_secondary;
-	enum wl_output_transform transform;
-	float scale;
 };
 
 struct PointerConstraint {

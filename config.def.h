@@ -54,12 +54,12 @@ static const Layout layouts[] = {
  * millimetres. Leave fields at zero (or omit the block) to auto-detect. */
 /* NOTE: ALWAYS add a fallback rule, even if you are completely sure it won't be used */
 static const MonitorRule monrules[] = {
-	/* name       nmaster scale layout       rotate/reflect                x    y    phys */
+	/* name       scale rotate/reflect                x    y    phys */
 	/* example of a HiDPI laptop monitor:
-	{ "eDP-1",    1,      2,    &layouts[0], WL_OUTPUT_TRANSFORM_NORMAL,   -1,  -1, { .width_mm = 294.0, .height_mm = 165.0, .size_is_set = 1 } },
+	{ "eDP-1",    2,    WL_OUTPUT_TRANSFORM_NORMAL,   -1,  -1, { .width_mm = 294.0, .height_mm = 165.0, .size_is_set = 1 } },
 	*/
 	/* defaults */
-	{ NULL,       1,      1,    &layouts[0], WL_OUTPUT_TRANSFORM_NORMAL,   -1,  -1, {
+	{ NULL,       1,    WL_OUTPUT_TRANSFORM_NORMAL,   -1,  -1, {
 		.width_mm = 0,
 		.height_mm = 0,
 		.x_mm = 0,
@@ -75,12 +75,12 @@ static const MonitorRule monrules[] = {
  * is applied. A width/height of 0 expands to the monitor's usable area.
  *
  * Example (uncomment to use) – split HDMI-A-1 into left/right halves:
- * { "HDMI-A-1", "left",  0,   0,  960, 1080, 0.55f, 1, &layouts[0], &layouts[1], WL_OUTPUT_TRANSFORM_NORMAL, 1.0f },
- * { "HDMI-A-1", "right", 960,  0,  960, 1080, 0.55f, 1, &layouts[0], &layouts[1], WL_OUTPUT_TRANSFORM_NORMAL, 1.0f },
+ * { "HDMI-A-1", "left",  0,   0,  960, 1080, 0.55f, 1, &layouts[0], &layouts[1] },
+ * { "HDMI-A-1", "right", 960,  0,  960, 1080, 0.55f, 1, &layouts[0], &layouts[1] },
  */
 static const VirtualOutputRule vorules[] = {
-	/* monitor  name     x    y    w    h    mfact  nmaster  primary layout   secondary layout                 transform                   scale */
-	{ NULL,    NULL,     0,   0,   0,   0,   0.55f, 1,       &layouts[0],     (LENGTH(layouts) > 1) ? &layouts[1] : &layouts[0], WL_OUTPUT_TRANSFORM_NORMAL, 1.0f },
+	/* monitor  name     x    y    w    h    mfact  nmaster  primary layout   secondary layout */
+	{ NULL,    NULL,     0,   0,   0,   0,   0.55f, 1,       &layouts[0],     (LENGTH(layouts) > 1) ? &layouts[1] : &layouts[0] },
 };
 
 /* keyboard */
