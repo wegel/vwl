@@ -727,7 +727,6 @@ createmon(struct wl_listener *listener, void *data)
 		if (vr) {
 			new_vout = createvout(m, vr->name);
 			if (match) {
-				new_vout->mfact = match->mfact;
 				new_vout->nmaster = match->nmaster;
 				new_vout->lt[0] = match->lt ? match->lt : new_vout->lt[0];
 				new_vout->lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : new_vout->lt[0];
@@ -754,7 +753,6 @@ createmon(struct wl_listener *listener, void *data)
 		} else {
 			new_vout = createvout(m, NULL);
 			if (match) {
-				new_vout->mfact = match->mfact;
 				new_vout->nmaster = match->nmaster;
 				new_vout->lt[0] = match->lt ? match->lt : new_vout->lt[0];
 				new_vout->lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : new_vout->lt[0];
@@ -1607,6 +1605,8 @@ setup(void)
 	int drm_fd, i, sig[] = {SIGCHLD, SIGINT, SIGTERM, SIGPIPE};
 	struct sigaction sa = {.sa_flags = SA_RESTART, .sa_handler = handlesig};
 	const MonitorRule *defrule;
+	const VirtualOutputRule *defvorule = NULL;
+	size_t j;
 	sigemptyset(&sa.sa_mask);
 
 	for (i = 0; i < (int)LENGTH(sig); i++)
@@ -1635,14 +1635,19 @@ setup(void)
 	wlr_scene_node_place_below(&drag_icon->node, &layers[LyrBlock]->node);
 
 	defrule = &monrules[0];
-	(void)vorules;
+	for (j = 0; j < LENGTH(vorules); j++) {
+		if (!vorules[j].monitor) {
+			defvorule = &vorules[j];
+			break;
+		}
+	}
 	for (i = 0; i < WORKSPACE_COUNT; i++) {
 		Workspace *ws = &workspaces[i];
 		ws->id = i;
 		snprintf(ws->name, sizeof ws->name, "%u", i);
 		ws->vout = NULL;
 		wl_list_init(&ws->link);
-		ws->state.mfact = defrule->mfact;
+		ws->state.mfact = defvorule && defvorule->mfact > 0 ? defvorule->mfact : 0.55f;
 		ws->state.nmaster = defrule->nmaster;
 		ws->state.sellt = 0;
 		ws->state.lt[0] = defrule->lt ? defrule->lt : &layouts[0];
@@ -2465,9 +2470,20 @@ createvout(Monitor *m, const char *name)
 {
 	static unsigned int next_id = 1;
 	VirtualOutput *vout;
+	const VirtualOutputRule *default_rule = NULL;
+	size_t j;
 
 	if (!m)
 		return NULL;
+
+	/* find the default (fallback) vout rule */
+	for (j = 0; j < LENGTH(vorules); j++) {
+		if (!vorules[j].monitor) {
+			default_rule = &vorules[j];
+			break;
+		}
+	}
+
 	vout = ecalloc(1, sizeof(*vout));
 	vout->mon = m;
 	vout->id = next_id++;
@@ -2475,8 +2491,8 @@ createvout(Monitor *m, const char *name)
 	vout->transform = WL_OUTPUT_TRANSFORM_NORMAL;
 	vout->layout_geom = m->window_area;
 	vout->rule_geom = (struct wlr_box){0};
-	vout->mfact = 0.55f;
-	vout->nmaster = 1;
+	vout->mfact = default_rule && default_rule->mfact > 0 ? default_rule->mfact : 0.55f;
+	vout->nmaster = default_rule && default_rule->nmaster > 0 ? default_rule->nmaster : 1;
 	vout->sellt = 0;
 	vout->lt[0] = &layouts[0];
 	vout->lt[1] = (LENGTH(layouts) > 1) ? &layouts[1] : vout->lt[0];

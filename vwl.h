@@ -232,7 +232,6 @@ struct CursorPhysical {
 
 struct MonitorRule {
 	const char *name;
-	float mfact;
 	int nmaster;
 	float scale;
 	const Layout *lt;
