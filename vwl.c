@@ -470,9 +470,6 @@ arrange(Monitor *m)
 	checkidleinhibitor(NULL);
 }
 
-
-
-
 void
 cleanupmon(struct wl_listener *listener, void *data)
 {
@@ -571,7 +568,6 @@ closemon(Monitor *m)
 	updateipc();
 }
 
-
 void
 commitnotify(struct wl_listener *listener, void *data)
 {
@@ -604,13 +600,6 @@ commitnotify(struct wl_listener *listener, void *data)
 	if (c->resize && c->resize <= c->surface.xdg->current.configure_serial)
 		c->resize = 0;
 }
-
-
-
-
-
-
-
 
 void
 createmon(struct wl_listener *listener, void *data)
@@ -839,20 +828,6 @@ createnotify(struct wl_listener *listener, void *data)
 	LISTEN(&toplevel->events.set_title, &c->set_title, updatetitle);
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 void
 destroynotify(struct wl_listener *listener, void *data)
 {
@@ -878,8 +853,6 @@ destroynotify(struct wl_listener *listener, void *data)
 	}
 	free(c);
 }
-
-
 
 Monitor *
 dirtomon(enum wlr_direction dir)
@@ -1110,11 +1083,6 @@ fullscreennotify(struct wl_listener *listener, void *data)
 	}
 }
 
-
-
-
-
-
 void
 killclient(const Arg *arg)
 {
@@ -1122,7 +1090,6 @@ killclient(const Arg *arg)
 	if (sel)
 		client_send_close(sel);
 }
-
 
 void
 mapnotify(struct wl_listener *listener, void *data)
@@ -1362,19 +1329,11 @@ moveresize(const Arg *arg)
 	}
 }
 
-
-
-
-
 void
 quit(const Arg *arg)
 {
 	wl_display_terminate(dpy);
 }
-
-
-
-
 
 void
 resize(Client *c, struct wlr_box geo, int interact)
@@ -1466,8 +1425,6 @@ run(char *startup_cmd)
 	 * frame events at the refresh rate, and so on. */
 	wl_display_run(dpy);
 }
-
-
 
 void
 setfloating(Client *c, int floating)
@@ -1584,8 +1541,6 @@ setworkspace(Client *c, Workspace *ws)
 	if (selmon && workspace_changed)
 		focusclient(focustop(selmon), 1);
 }
-
-
 
 void
 setup(void)
@@ -1854,7 +1809,6 @@ spawn(const Arg *arg)
 	}
 }
 
-
 void
 tag(const Arg *arg)
 {
@@ -2041,8 +1995,6 @@ toggletabbed(const Arg *arg)
 	else
 		setlayout(&(Arg){.v = tab});
 }
-
-
 
 void
 unmapnotify(struct wl_listener *listener, void *data)
@@ -2264,8 +2216,6 @@ view(const Arg *arg)
 	updateipc();
 }
 
-
-
 Monitor *
 xytomon(double x, double y)
 {
@@ -2397,8 +2347,6 @@ voutat(Monitor *m, double lx, double ly)
 	}
 	return focusvout(m);
 }
-
-
 
 void
 arrangevout(Monitor *m, const struct wlr_box *usable_area)
@@ -2853,3 +2801,4 @@ main(int argc, char *argv[])
 usage:
 	die("Usage: %s [-v] [-d] [-s startup command]", argv[0]);
 }
+
