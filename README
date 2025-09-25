@@ -61,17 +61,19 @@ Key settings:
 
 VIRTUAL OUTPUTS
 ---------------
-Split monitors into regions, each displaying a workspace.
-Workspaces (0-255) can be moved between virtual outputs dynamically.
+Split physical monitors into named regions. Each region gets its own workspace.
+Move workspaces between regions with mod+ctrl+shift+hjkl.
 
-Example config.def.h:
 static const VirtualOutputRule vorules[] = {
-    /* monitor  name     x    y    w    h */
-    { "DP-1",   "left",  0,   0,   960, 1080, ... },
-    { "DP-1",   "right", 960, 0,   960, 1080, ... },
+    /* monitor  name       x    y     w    h   mfact nmaster lt[0]        lt[1] */
+    { "DP-1",   "left",    0,   0,  960, 1080, 0.55f, 1, &layouts[0], &layouts[1] },
+    { "DP-1",   "right", 960,   0,  960, 1080, 0.55f, 1, &layouts[0], &layouts[1] },
 };
 
-This splits DP-1 into left/right halves, each can show any workspace.
+w/h of 0 = expand to monitor's remaining space.
+mfact = master area factor (0.0-1.0).
+nmaster = number of master windows.
+lt[0]/lt[1] = primary/secondary layout functions.
 
 FULLSCREEN MODES
 ----------------
@@ -81,8 +83,25 @@ Toggle with mod+f cycles through: off -> virtual -> monitor -> off
 
 PHYSICAL CURSOR CONTINUITY
 ---------------------------
-Seamless cursor movement across monitor gaps based on physical dimensions.
-Configure monitor physical properties in monrules[] with width_mm/height_mm.
+Seamless cursor tracking across monitor gaps. Set physical dimensions in monrules[].
+
+static const MonitorRule monrules[] = {
+    /* name      scale transform          x    y   phys{} */
+    { "DP-1",    1.0f, WL_OUTPUT_TRANSFORM_NORMAL, 0, 0, {
+        .width_mm = 520,    /* physical width in mm */
+        .height_mm = 320,   /* physical height in mm */
+        .x_mm = 0,          /* physical X position */
+        .y_mm = 0,          /* physical Y position */
+        .size_is_set = 1,   /* use explicit size */
+        .origin_is_set = 1, /* use explicit origin */
+    }},
+    { NULL, 1, WL_OUTPUT_TRANSFORM_NORMAL, -1, -1, {} }, /* fallback */
+};
+
+x/y = pixel position (-1,-1 = auto).
+scale = HiDPI factor.
+transform = rotation (NORMAL/90/180/270/FLIPPED_*).
+phys{} = real-world dimensions for cursor math.
 
 STATUS
 ------
