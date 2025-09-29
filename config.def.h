@@ -15,10 +15,20 @@ static const float urgentcolor[]           = COLOR(0xff0000ff);
 static const float fullscreen_bg[]         = {0.0f, 0.0f, 0.0f, 1.0f}; /* You can also use glsl colors */
 
 /* tabbed header */
-static const int tabhdr_height = 8;
 static const enum TabHdrPos tabhdr_position = TABHDR_TOP;
 static const float tabhdr_active_color[] = COLOR(0x005577ff);
 static const float tabhdr_inactive_color[] = COLOR(0x444444ff);
+static const float tabhdr_text_active_color[] = COLOR(0xffffffff);
+static const float tabhdr_text_inactive_color[] = COLOR(0xe0e0e0ff);
+static const char tabhdr_font[] = "Sans 10";
+static const int tabhdr_padding_top = 6;
+static const int tabhdr_padding_bottom = 6;
+static const int tabhdr_padding_left = 8;
+static const int tabhdr_padding_right = 8;
+static const TabTitleTransformRule tabhdr_title_transforms[] = {
+	/* { "pattern", "replacement" }, */
+	{ NULL, NULL },
+};
 
 /* cursor */
 static const int cursor_size = 24;

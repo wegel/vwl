@@ -37,6 +37,11 @@ enum { LyrBg, LyrBottom, LyrTile, LyrFloat, LyrTop, LyrFS, LyrOverlay, LyrBlock,
 enum { FS_NONE, FS_VIRTUAL, FS_MONITOR }; /* fullscreen modes */
 enum TabHdrPos { TABHDR_TOP, TABHDR_BOTTOM };
 
+typedef struct {
+	const char *pattern;
+	const char *replacement;
+} TabTitleTransformRule;
+
 /* type declarations */
 typedef union {
 	int i;
