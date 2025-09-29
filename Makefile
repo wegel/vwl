@@ -58,6 +58,16 @@ vwl-ipc-unstable-v1-protocol.c:
 
 config.h:
 	cp config.def.h $@
+update-loc:
+	@if command -v cloc >/dev/null 2>&1; then \
+		TOTAL=$$(find . -maxdepth 1 \( -name "*.c" -o -name "*.h" \) | grep -v -E "protocol|config\.h$$" | xargs cloc --csv --quiet 2>/dev/null | tail -1 | cut -d',' -f5); \
+		VWL=$$(cloc --csv --quiet vwl.c 2>/dev/null | tail -1 | cut -d',' -f5); \
+	else \
+		TOTAL=$$(find . -name "*.c" -o -name "*.h" | grep -v -E "protocol|config\.h" | xargs wc -l | tail -1 | awk '{print $$1}'); \
+		VWL=$$(wc -l < vwl.c); \
+	fi; \
+	sed -i "s/^LOC: .*/LOC: $$TOTAL total, $$VWL vwl.c/" README
+
 clean:
 	rm -f vwl *.o *-protocol.h *-protocol.c
 
