@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <float.h>
 #include <string.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -125,6 +126,7 @@ static void destroynotify(struct wl_listener *listener, void *data);
 void destroypointerconstraint(struct wl_listener *listener, void *data);
 void destroykeyboardgroup(struct wl_listener *listener, void *data);
 static Monitor *dirtomon(enum wlr_direction dir);
+static VirtualOutput *voutneighbor(VirtualOutput *from, enum wlr_direction dir);
 void focusclient(Client *c, int lift);
 void focusmon(const Arg *arg);
 void focusstack(const Arg *arg);
@@ -212,6 +214,7 @@ static Workspace *wsnext(VirtualOutput *vout, Workspace *exclude);
 static void wssave(VirtualOutput *vout);
 static void wsload(VirtualOutput *vout, Workspace *ws);
 static Client *focustopvout(VirtualOutput *vout);
+static void cursorwarptovout(VirtualOutput *vout);
 /* removed unused voname function */
 
 /* variables */
@@ -1179,6 +1182,109 @@ dirtomon(enum wlr_direction dir)
 			selmon->wlr_output, selmon->monitor_area.x, selmon->monitor_area.y)))
 		return next->data;
 	return selmon;
+}
+
+static VirtualOutput *
+voutneighbor(VirtualOutput *from, enum wlr_direction dir)
+{
+	static const enum wlr_direction order[] = {
+		WLR_DIRECTION_LEFT,
+		WLR_DIRECTION_RIGHT,
+		WLR_DIRECTION_UP,
+		WLR_DIRECTION_DOWN,
+	};
+	struct wlr_box ref;
+	double ref_cx, ref_cy;
+	size_t i;
+
+	if (!from || !from->mon)
+		return NULL;
+	ref = (from->layout_geom.width > 0 && from->layout_geom.height > 0)
+			? from->layout_geom : from->mon->window_area;
+	if (ref.width <= 0 || ref.height <= 0)
+		return NULL;
+	ref_cx = ref.x + ref.width / 2.0;
+	ref_cy = ref.y + ref.height / 2.0;
+
+	for (i = 0; i < LENGTH(order); i++) {
+		enum wlr_direction want = order[i];
+		VirtualOutput *best = NULL, *vout;
+		double best_metric = (want == WLR_DIRECTION_LEFT || want == WLR_DIRECTION_UP)
+				? -DBL_MAX : DBL_MAX;
+
+		if (dir && !(dir & want))
+			continue;
+		wl_list_for_each(vout, &from->mon->vouts, link) {
+			struct wlr_box box;
+			double cx, cy;
+			bool overlaps;
+
+			if (vout == from)
+				continue;
+			box = (vout->layout_geom.width > 0 && vout->layout_geom.height > 0)
+					? vout->layout_geom : vout->mon->window_area;
+			if (box.width <= 0 || box.height <= 0)
+				continue;
+			cx = box.x + box.width / 2.0;
+			cy = box.y + box.height / 2.0;
+			if (want == WLR_DIRECTION_LEFT || want == WLR_DIRECTION_RIGHT)
+				overlaps = box.y < ref.y + ref.height && ref.y < box.y + box.height;
+			else
+				overlaps = box.x < ref.x + ref.width && ref.x < box.x + box.width;
+			if (!overlaps)
+				continue;
+			switch (want) {
+			case WLR_DIRECTION_LEFT:
+				if (cx >= ref_cx)
+					continue;
+				if (cx > best_metric)
+					best_metric = cx, best = vout;
+				break;
+			case WLR_DIRECTION_RIGHT:
+				if (cx <= ref_cx)
+					continue;
+				if (cx < best_metric)
+					best_metric = cx, best = vout;
+				break;
+			case WLR_DIRECTION_UP:
+				if (cy >= ref_cy)
+					continue;
+				if (cy > best_metric)
+					best_metric = cy, best = vout;
+				break;
+			case WLR_DIRECTION_DOWN:
+				if (cy <= ref_cy)
+					continue;
+				if (cy < best_metric)
+					best_metric = cy, best = vout;
+				break;
+			default:
+				break;
+			}
+		}
+		if (best)
+			return best;
+	}
+	return NULL;
+}
+
+static void
+cursorwarptovout(VirtualOutput *vout)
+{
+	struct wlr_box area;
+	double cx, cy;
+
+	if (!cursor || !vout || !vout->mon)
+		return;
+	area = (vout->layout_geom.width > 0 && vout->layout_geom.height > 0)
+			? vout->layout_geom : vout->mon->window_area;
+	if (area.width <= 0 || area.height <= 0)
+		return;
+	cx = area.x + area.width / 2.0;
+	cy = area.y + area.height / 2.0;
+	wlr_cursor_warp(cursor, NULL, cx, cy);
+	cursorsync();
+	motionnotify(0, NULL, 0, 0, 0, 0);
 }
 
 void
@@ -2158,23 +2264,39 @@ tagmon(const Arg *arg)
 void
 moveworkspace(const Arg *arg)
 {
-	Monitor *target;
+	Monitor *target = NULL;
 	Workspace *active;
-	VirtualOutput *target_vout;
+	VirtualOutput *origin_vout, *target_vout;
+	bool warp_needed;
+	Client *focused;
 
 	if (!selmon || !(active = MON_FOCUS_WS(selmon)))
 		return;
-	target = dirtomon(arg->i);
-	if (!target || target == selmon)
-		return;
-	target_vout = focusvout(target);
-	if (!target_vout)
-		return;
+	origin_vout = active->vout ? active->vout : focusvout(selmon);
+	target_vout = voutneighbor(origin_vout, arg->i);
+	if (target_vout) {
+		target = target_vout->mon;
+	} else {
+		target = dirtomon(arg->i);
+		if (!target || target == selmon)
+			return;
+		target_vout = focusvout(target);
+		if (!target_vout)
+			return;
+	}
+
+	focused = origin_vout ? focustopvout(origin_vout) : focustop(selmon);
+	warp_needed = target_vout != origin_vout;
 	wsmoveto(active, target_vout);
 	selmon = target;
 	selvout = target_vout;
 	selws = target_vout->ws;
-	focusclient(focustop(selmon), 1);
+	if (focused)
+		focusclient(focused, 1);
+	else
+		focusclient(focustop(selmon), 1);
+	if (warp_needed)
+		cursorwarptovout(target_vout);
 	updateipc();
 }
 
@@ -2528,16 +2650,11 @@ view(const Arg *arg)
 	if (vout->mon) {
 		/* always update focus when switching to a different vout, even if
 		 * the workspace was already active on that vout */
-			if (vout->ws == ws && vout->mon == selmon) {
-				focusclient(focustopvout(vout), 1);
-			}
-			wlr_cursor_warp(cursor, NULL,
-				vout->layout_geom.x + vout->layout_geom.width / 2,
-				vout->layout_geom.y + vout->layout_geom.height / 2);
-			cursorsync();
-			/* trigger focus update after cursor warp */
-			motionnotify(0, NULL, 0, 0, 0, 0);
+		if (vout->ws == ws && vout->mon == selmon) {
+			focusclient(focustopvout(vout), 1);
 		}
+		cursorwarptovout(vout);
+	}
 	updateipc();
 }
 

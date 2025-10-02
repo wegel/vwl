@@ -4,7 +4,7 @@ vwl
 wlroots-based Wayland compositor with virtual outputs and physical cursor continuity.
 Originally forked from dwl.
 
-LOC: 5027 total, 2562 vwl.c
+LOC: 5137 total, 2672 vwl.c
 
 FEATURES
 --------
