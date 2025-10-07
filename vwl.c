@@ -654,6 +654,7 @@ tabhdrupdate(Monitor *m, VirtualOutput *vout, struct wlr_box area, Client *activ
 	int base_width, remainder;
 	int x = 0;
 	float scale = 1.0f;
+	bool active_is_virtual_fs;
 
 	if (!vout || !(tree = vout->tabhdr))
 		return;
@@ -664,7 +665,8 @@ tabhdrupdate(Monitor *m, VirtualOutput *vout, struct wlr_box area, Client *activ
 	}
 
 	wl_list_for_each(c, &clients, link) {
-		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
+		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) || c->isfloating ||
+		    client_is_nonvirtual_fullscreen(c))
 			continue;
 		count++;
 	}
@@ -676,6 +678,9 @@ tabhdrupdate(Monitor *m, VirtualOutput *vout, struct wlr_box area, Client *activ
 
 	tabhdrclear(vout);
 	wlr_scene_node_set_enabled(&tree->node, 1);
+	active_is_virtual_fs = active && client_is_virtual_fullscreen(active);
+	if (active_is_virtual_fs)
+		wlr_scene_node_raise_to_top(&tree->node);
 
 	if (tabhdr_position == TABHDR_TOP)
 		wlr_scene_node_set_position(&tree->node, area.x, area.y);
@@ -697,7 +702,8 @@ tabhdrupdate(Monitor *m, VirtualOutput *vout, struct wlr_box area, Client *activ
 		const char *render_title;
 		int w;
 
-		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
+		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) || c->isfloating ||
+		    client_is_nonvirtual_fullscreen(c))
 			continue;
 		w = base_width + (idx < remainder ? 1 : 0);
 		tabtree = wlr_scene_tree_create(tree);
@@ -1300,8 +1306,14 @@ focusclient(Client *c, int lift)
 		return;
 
 	/* Raise client in stacking order if requested */
-	if (c && lift)
+	if (c && lift) {
+		VirtualOutput *vout = CLIENT_VOUT(c);
 		wlr_scene_node_raise_to_top(&c->scene->node);
+		if (vout && vout->tabhdr && vout->lt[vout->sellt] &&
+			vout->lt[vout->sellt]->arrange == tabbed &&
+			client_is_virtual_fullscreen(c))
+			wlr_scene_node_raise_to_top(&vout->tabhdr->node);
+	}
 
 	if (c && client_surface(c) == old)
 		return;
@@ -1401,7 +1413,9 @@ focusstack(const Arg *arg)
 {
 	/* Focus the next or previous client (in tiling order) on selmon */
 	Client *c, *sel = focustop(selmon);
-	if (!sel || (sel->isfullscreen && !client_has_children(sel)))
+	if (!sel)
+		return;
+	if (client_is_nonvirtual_fullscreen(sel) && !client_has_children(sel))
 		return;
 	if (arg->i > 0) {
 		wl_list_for_each(c, &sel->link, link) {
@@ -1435,7 +1449,7 @@ tabmove(const Arg *arg)
 		return;
 	if (!vout->lt[vout->sellt] || vout->lt[vout->sellt]->arrange != tabbed)
 		return;
-	if (CLIENT_VOUT(sel) != vout || sel->isfloating || sel->isfullscreen)
+	if (CLIENT_VOUT(sel) != vout || sel->isfloating || client_is_nonvirtual_fullscreen(sel))
 		return;
 
 	dir = arg->i;
@@ -1446,7 +1460,7 @@ tabmove(const Arg *arg)
 		for (link = sel->link.next; link != &clients; link = link->next) {
 			Client *c = wl_container_of(link, sel, link);
 			if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, selmon)
-					|| c->isfloating || c->isfullscreen)
+					|| c->isfloating || client_is_nonvirtual_fullscreen(c))
 				continue;
 			target = c;
 			break;
@@ -1459,7 +1473,7 @@ tabmove(const Arg *arg)
 		for (link = sel->link.prev; link != &clients; link = link->prev) {
 			Client *c = wl_container_of(link, sel, link);
 			if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, selmon)
-					|| c->isfloating || c->isfullscreen)
+					|| c->isfloating || client_is_nonvirtual_fullscreen(c))
 				continue;
 			target = c;
 			break;
@@ -1576,8 +1590,13 @@ mapnotify(struct wl_listener *listener, void *data)
 unset_fullscreen:
 	m = c->mon ? c->mon : xytomon(c->geom.x, c->geom.y);
 	wl_list_for_each(w, &clients, link) {
-		if (w != c && w != p && w->isfullscreen && m == w->mon && w->ws == c->ws)
-			setfullscreen(w, 0);
+		if (w == c || w == p)
+			continue;
+		if (!w->isfullscreen || w->mon != m || w->ws != c->ws)
+			continue;
+		if (client_is_virtual_fullscreen(w))
+			continue;
+		setfullscreen(w, 0);
 	}
 }
 
@@ -1880,8 +1899,17 @@ setfullscreen(Client *c, int fullscreen)
 		else
 			wlr_scene_node_reparent(&c->scene->node, layers[LyrFloat]);
 		target = c->mon->monitor_area;
-		if (c->fullscreen_mode == FS_VIRTUAL && vout && vout->layout_geom.width && vout->layout_geom.height)
+		if (c->fullscreen_mode == FS_VIRTUAL && vout && vout->layout_geom.width && vout->layout_geom.height) {
 			target = vout->layout_geom;
+			if (vout->lt[vout->sellt] && vout->lt[vout->sellt]->arrange == tabbed) {
+				int header = tabhdr_header_height();
+				if (header > 0 && target.height > header) {
+					target.height -= header;
+					if (tabhdr_position == TABHDR_TOP)
+						target.y += header;
+				}
+			}
+		}
 		resize(c, target, 0);
 		if (c->fullscreen_mode == FS_VIRTUAL)
 			wlr_scene_node_raise_to_top(&c->scene->node);
@@ -2324,11 +2352,16 @@ tabbed(Monitor *m)
 	}
 
 	wl_list_for_each(c, &clients, link) {
-		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
+		bool virtual_fs;
+
+		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m))
+			continue;
+		virtual_fs = client_is_virtual_fullscreen(c);
+		if (c->isfloating || (!virtual_fs && c->isfullscreen))
 			continue;
 		count++;
 		if (c == active) {
-			if (client_box.height > 0 &&
+			if (!virtual_fs && client_box.height > 0 &&
 				(c->geom.x != client_box.x || c->geom.y != client_box.y ||
 				 c->geom.width != client_box.width || c->geom.height != client_box.height))
 				resize(c, client_box, 0);

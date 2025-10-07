@@ -1772,7 +1772,7 @@ ipc_output_printstatus_to(IPCOutput *ipc_output)
 		is_tabbed = 1;
 		wl_list_for_each(tab, &clients, link) {
 			if (CLIENT_VOUT(tab) != active_vout || !VISIBLEON(tab, monitor) ||
-			    tab->isfloating || tab->isfullscreen)
+			    tab->isfloating || client_is_nonvirtual_fullscreen(tab))
 				continue;
 			if (tab == focused)
 				tab_index = idx;
@@ -1802,7 +1802,7 @@ ipc_output_printstatus_to(IPCOutput *ipc_output)
 		int idx = 0;
 		wl_list_for_each(tab, &clients, link) {
 			if (CLIENT_VOUT(tab) != active_vout || !VISIBLEON(tab, monitor) ||
-			    tab->isfloating || tab->isfullscreen)
+			    tab->isfloating || client_is_nonvirtual_fullscreen(tab))
 				continue;
 			zvwl_ipc_output_v1_send_tab_window(ipc_output->resource,
 				idx,

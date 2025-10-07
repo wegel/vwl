@@ -193,6 +193,18 @@ client_has_children(Client *c)
 	return wl_list_length(&c->surface.xdg->link) > 1;
 }
 
+static inline int
+client_is_virtual_fullscreen(Client *c)
+{
+	return c && c->isfullscreen && c->fullscreen_mode == FS_VIRTUAL;
+}
+
+static inline int
+client_is_nonvirtual_fullscreen(Client *c)
+{
+	return c && c->isfullscreen && c->fullscreen_mode != FS_VIRTUAL;
+}
+
 static inline const char *
 client_get_title(Client *c)
 {
