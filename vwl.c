@@ -1408,14 +1408,32 @@ focusmon(const Arg *arg)
 	focusclient(focustop(selmon), 1);
 }
 
+static bool
+tiling_locked_by_fullscreen(Client *sel)
+{
+	VirtualOutput *vout;
+	const Layout *layout;
+
+	if (!sel || client_has_children(sel) || !sel->isfullscreen)
+		return false;
+	if (client_is_nonvirtual_fullscreen(sel))
+		return true;
+	vout = CLIENT_VOUT(sel);
+	if (!vout || !vout->lt[vout->sellt])
+		return true;
+	layout = vout->lt[vout->sellt];
+	if (!layout || layout->arrange == tabbed)
+		return false;
+	return true;
+}
+
 void
 focusstack(const Arg *arg)
 {
 	/* Focus the next or previous client (in tiling order) on selmon */
 	Client *c, *sel = focustop(selmon);
-	if (!sel)
-		return;
-	if (client_is_nonvirtual_fullscreen(sel) && !client_has_children(sel))
+
+	if (!sel || tiling_locked_by_fullscreen(sel))
 		return;
 	if (arg->i > 0) {
 		wl_list_for_each(c, &sel->link, link) {
@@ -2736,6 +2754,8 @@ zoom(const Arg *arg)
 	VirtualOutput *vout = focusvout(selmon);
 
 	if (!sel || !vout || !vout->lt[vout->sellt]->arrange || sel->isfloating)
+		return;
+	if (tiling_locked_by_fullscreen(sel))
 		return;
 
 	/* Search for the first tiled window that is not sel, marking sel as
