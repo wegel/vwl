@@ -1432,13 +1432,19 @@ focusstack(const Arg *arg)
 {
 	/* Focus the next or previous client (in tiling order) on selmon */
 	Client *c, *sel = focustop(selmon);
-
+	VirtualOutput *vout = focusvout(selmon);
+	bool restrict_to_vout = false;
 	if (!sel || tiling_locked_by_fullscreen(sel))
 		return;
+	if (vout && vout->lt[vout->sellt] && vout->lt[vout->sellt]->arrange == tabbed)
+		restrict_to_vout = true;
+	c = sel;
 	if (arg->i > 0) {
 		wl_list_for_each(c, &sel->link, link) {
 			if (&c->link == &clients)
 				continue; /* wrap past the sentinel node */
+			if (restrict_to_vout && CLIENT_VOUT(c) != vout)
+				continue;
 			if (VISIBLEON(c, selmon))
 				break; /* found it */
 		}
@@ -1446,6 +1452,8 @@ focusstack(const Arg *arg)
 		wl_list_for_each_reverse(c, &sel->link, link) {
 			if (&c->link == &clients)
 				continue; /* wrap past the sentinel node */
+			if (restrict_to_vout && CLIENT_VOUT(c) != vout)
+				continue;
 			if (VISIBLEON(c, selmon))
 				break; /* found it */
 		}
