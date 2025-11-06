@@ -1110,7 +1110,7 @@ createmon(struct wl_listener *listener, void *data)
 		ws->orphan_monitor_name[0] = '\0';
 		/* Update monitor pointers for all clients on this workspace */
 		wl_list_for_each(client, &clients, link) {
-			if (client->ws == ws && client->mon == NULL)
+			if (client->ws == ws)
 				client->mon = target_vout->mon;
 		}
 	}
