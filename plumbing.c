@@ -817,7 +817,8 @@ pointerfocus(Client *c, struct wlr_surface *surface, double sx, double sy,
 		uint32_t time)
 {
 	struct timespec now;
-	if (surface != seat->pointer_state.focused_surface &&
+	/* focus follows mouse: update keyboard focus when hovering a different client */
+	if (surface != seat->keyboard_state.focused_surface &&
 			sloppyfocus && time && c && !client_is_unmanaged(c))
 		focusclient(c, 0);
 	/* If surface is NULL, clear pointer focus */
