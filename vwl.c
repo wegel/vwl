@@ -2590,8 +2590,14 @@ updatemons(struct wl_listener *listener, void *data)
 		/* Don't move clients to the left output when plugging monitors */
 		arrange(m);
 		/* make sure fullscreen clients have the right size */
-		if ((c = focustop(m)) && c->isfullscreen)
-			resize(c, m->monitor_area, 0);
+		if ((c = focustop(m)) && c->isfullscreen) {
+			if (c->fullscreen_mode == FS_MONITOR) {
+				resize(c, m->monitor_area, 0);
+			} else {
+				/* FS_VIRTUAL - call setfullscreen to recalc vout geometry */
+				setfullscreen(c, 1);
+			}
+		}
 
 		/* Try to re-set the gamma LUT when updating monitors,
 		 * it's only really needed when enabling a disabled output, but meh. */
