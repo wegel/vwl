@@ -347,6 +347,7 @@ void motionabsolute(struct wl_listener *listener, void *data);
 void gpureset(struct wl_listener *listener, void *data);
 void inputdevice(struct wl_listener *listener, void *data);
 void createidleinhibitor(struct wl_listener *listener, void *data);
+void update_fullscreen_idle_inhibit(void);
 void virtualkeyboard(struct wl_listener *listener, void *data);
 void virtualpointer(struct wl_listener *listener, void *data);
 void requeststartdrag(struct wl_listener *listener, void *data);

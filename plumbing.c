@@ -127,6 +127,7 @@ CursorPhysical cursor_phys;
 pid_t child_pid = -1;
 struct wlr_idle_notifier_v1 *idle_notifier;
 struct wlr_idle_inhibit_manager_v1 *idle_inhibit_mgr;
+static int fullscreen_idle_active;
 #ifdef XWAYLAND
 struct wlr_xwayland *xwayland;
 #endif
@@ -147,6 +148,7 @@ void createkeyboard(struct wlr_keyboard *keyboard);
 void createpointer(struct wlr_pointer *pointer);
 KeyboardGroup *createkeyboardgroup(void);
 void destroyidleinhibitor(struct wl_listener *listener, void *data);
+void update_fullscreen_idle_inhibit(void);
 void checkidleinhibitor(struct wlr_surface *exclude);
 void destroydragicon(struct wl_listener *listener, void *data);
 void destroypointerconstraint(struct wl_listener *listener, void *data);
@@ -1909,13 +1911,44 @@ updateipc(void)
 	Monitor *m;
 	wl_list_for_each(m, &mons, link)
 		ipc_output_printstatus(m);
+	update_fullscreen_idle_inhibit();
+}
+
+void
+update_fullscreen_idle_inhibit(void)
+{
+	Client *c;
+	int requested = 0;
+
+	if (fullscreen_idle_inhibit) {
+		wl_list_for_each(c, &clients, link) {
+			if (!client_is_unmanaged(c)
+					&& c->isfullscreen
+					&& VISIBLEON(c, CLIENT_MON(c))) {
+				requested = 1;
+				break;
+			}
+		}
+	}
+
+	fullscreen_idle_active = requested;
+	checkidleinhibitor(NULL);
 }
 
 void
 checkidleinhibitor(struct wlr_surface *exclude)
 {
-	int inhibited = 0, unused_lx, unused_ly;
+	int inhibited = fullscreen_idle_active, unused_lx, unused_ly;
 	struct wlr_idle_inhibitor_v1 *inhibitor;
+
+	if (!idle_notifier)
+		return;
+
+	if (!idle_inhibit_mgr) {
+		wlr_idle_notifier_v1_set_inhibited(idle_notifier, inhibited);
+		return;
+	}
+
 	wl_list_for_each(inhibitor, &idle_inhibit_mgr->inhibitors, link) {
 		struct wlr_surface *surface = wlr_surface_get_root_surface(inhibitor->surface);
 		struct wlr_scene_tree *tree = surface->data;
