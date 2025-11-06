@@ -1434,16 +1434,21 @@ focusstack(const Arg *arg)
 	Client *c, *sel = focustop(selmon);
 	VirtualOutput *vout = focusvout(selmon);
 	bool restrict_to_vout = false;
+	const Layout *layout;
 	if (!sel || tiling_locked_by_fullscreen(sel))
 		return;
 	if (vout && vout->lt[vout->sellt] && vout->lt[vout->sellt]->arrange == tabbed)
 		restrict_to_vout = true;
+	layout = vout ? vout->lt[vout->sellt] : NULL;
 	c = sel;
 	if (arg->i > 0) {
 		wl_list_for_each(c, &sel->link, link) {
 			if (&c->link == &clients)
 				continue; /* wrap past the sentinel node */
 			if (restrict_to_vout && CLIENT_VOUT(c) != vout)
+				continue;
+			/* skip floating windows in tabbed mode */
+			if (layout && layout->arrange == tabbed && c->isfloating)
 				continue;
 			if (VISIBLEON(c, selmon))
 				break; /* found it */
@@ -1453,6 +1458,9 @@ focusstack(const Arg *arg)
 			if (&c->link == &clients)
 				continue; /* wrap past the sentinel node */
 			if (restrict_to_vout && CLIENT_VOUT(c) != vout)
+				continue;
+			/* skip floating windows in tabbed mode */
+			if (layout && layout->arrange == tabbed && c->isfloating)
 				continue;
 			if (VISIBLEON(c, selmon))
 				break; /* found it */
@@ -2452,8 +2460,10 @@ void
 togglefloating(const Arg *arg)
 {
 	Client *sel = focustop(selmon);
-	/* return if fullscreen */
-	if (sel && !sel->isfullscreen)
+	VirtualOutput *vout = focusvout(selmon);
+	const Layout *layout = vout ? vout->lt[vout->sellt] : NULL;
+	/* return if fullscreen or in tabbed mode */
+	if (sel && !sel->isfullscreen && !(layout && layout->arrange == tabbed))
 		setfloating(sel, !sel->isfloating);
 }
 
