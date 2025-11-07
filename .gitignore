@@ -8,3 +8,4 @@ vwl
 *config.h
 .ccls-cache
 config.h
+config.local.mk
