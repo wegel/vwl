@@ -1,5 +1,5 @@
 _VERSION = 0.0.1-dev
-VERSION  = `git describe --tags --dirty 2>/dev/null || echo $(_VERSION)`
+VERSION  = `git describe --tags --always --dirty 2>/dev/null || echo $(_VERSION)`
 
 PKG_CONFIG = pkg-config
 

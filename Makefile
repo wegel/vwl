@@ -74,7 +74,7 @@ clean:
 dist: clean
 	mkdir -p vwl-$(VERSION)
 	cp -R LICENSE* Makefile CHANGELOG.md README.md client.h config.def.h \
-		config.mk protocols dwl.1 vwl.c util.c util.h vwl.desktop VWL_FEATURES.md \
+		config.mk protocols vwl.c util.c util.h vwl.desktop VWL_FEATURES.md \
 		vwl-$(VERSION)
 	tar -caf vwl-$(VERSION).tar.gz vwl-$(VERSION)
 	rm -rf vwl-$(VERSION)
@@ -84,14 +84,11 @@ install: vwl
 	rm -f $(DESTDIR)$(PREFIX)/bin/vwl
 	cp -f vwl $(DESTDIR)$(PREFIX)/bin
 	chmod 755 $(DESTDIR)$(PREFIX)/bin/vwl
-	mkdir -p $(DESTDIR)$(MANDIR)/man1
-	cp -f dwl.1 $(DESTDIR)$(MANDIR)/man1
-	chmod 644 $(DESTDIR)$(MANDIR)/man1/dwl.1
 	mkdir -p $(DESTDIR)$(DATADIR)/wayland-sessions
 	cp -f vwl.desktop $(DESTDIR)$(DATADIR)/wayland-sessions/vwl.desktop
 	chmod 644 $(DESTDIR)$(DATADIR)/wayland-sessions/vwl.desktop
 uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/vwl $(DESTDIR)$(MANDIR)/man1/dwl.1 \
+	rm -f $(DESTDIR)$(PREFIX)/bin/vwl \
 		$(DESTDIR)$(DATADIR)/wayland-sessions/vwl.desktop
 
 .SUFFIXES: .c .o

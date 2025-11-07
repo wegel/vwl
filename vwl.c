@@ -2284,7 +2284,7 @@ spawn(const Arg *arg)
 		dup2(STDERR_FILENO, STDOUT_FILENO);
 		setsid();
 		execvp(((char **)arg->v)[0], (char **)arg->v);
-		die("dwl: execvp %s failed:", ((char **)arg->v)[0]);
+		die("vwl: execvp %s failed:", ((char **)arg->v)[0]);
 	}
 }
 
@@ -2567,7 +2567,7 @@ updatemons(struct wl_listener *listener, void *data)
 	wlr_scene_node_set_position(&root_bg->node, sgeom.x, sgeom.y);
 	wlr_scene_rect_set_size(root_bg, sgeom.width, sgeom.height);
 
-	/* Make sure the clients are hidden when dwl is locked */
+	/* Make sure the clients are hidden when vwl is locked */
 	wlr_scene_node_set_position(&locked_bg->node, sgeom.x, sgeom.y);
 	wlr_scene_rect_set_size(locked_bg, sgeom.width, sgeom.height);
 
@@ -3281,7 +3281,7 @@ xwaylandready(struct wl_listener *listener, void *data)
 	/* assign the one and only seat */
 	wlr_xwayland_set_seat(xwayland, seat);
 
-	/* Set the default XWayland cursor to match the rest of dwl. */
+	/* Set the default XWayland cursor to match the rest of vwl. */
 	if ((xcursor = wlr_xcursor_manager_get_xcursor(cursor_mgr, "default", 1)))
 		wlr_xwayland_set_cursor(xwayland,
 				xcursor->images[0]->buffer, xcursor->images[0]->width * 4,
@@ -3302,7 +3302,7 @@ main(int argc, char *argv[])
 		else if (c == 'd')
 			log_level = WLR_DEBUG;
 		else if (c == 'v')
-			die("dwl " VERSION);
+			die("vwl " VERSION);
 		else
 			goto usage;
 	}
@@ -3313,6 +3313,7 @@ main(int argc, char *argv[])
 	if (!getenv("XDG_RUNTIME_DIR"))
 		die("XDG_RUNTIME_DIR must be set");
 	setup();
+	wlr_log(WLR_INFO, "vwl " VERSION);
 	run(startup_cmd);
 	cleanup();
 	return EXIT_SUCCESS;
