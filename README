@@ -4,7 +4,7 @@ vwl
 wlroots-based Wayland compositor with virtual outputs and physical cursor continuity.
 Originally forked from dwl.
 
-LOC: 5247 total, 2743 vwl.c
+LOC: 5248 total, 2744 vwl.c
 
 FEATURES
 --------
@@ -104,6 +104,34 @@ x/y = pixel position (-1,-1 = auto).
 scale = HiDPI factor.
 transform = rotation (NORMAL/90/180/270/FLIPPED_*).
 phys{} = real-world dimensions for cursor math.
+
+HOWTOS
+------
+
+§ startup script (~/.config/vwl/run):
+	#!/bin/sh
+	waybar &
+	swayidle -w \
+	  timeout 300 'swaylock -f' \
+	  timeout 600 'wlopm --off \*' \
+	  resume 'wlopm --on \*' \
+	  before-sleep 'swaylock -f' &
+
+§ Manual lock with swayidle (config.h):
+	static const char *lockcmd[] = { "sh", "-c", "sleep 1 && killall -USR1 swayidle", NULL };
+	/* ... */
+	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_L, spawn, {.v = lockcmd} },
+
+SIGUSR1 triggers swayidle's lock timeout, ensuring wake-on-input works.
+
+§ Screenshot (config.h):
+	static const char *screenshotcmd[] = { "sh", "-c",
+	  "grim -g \"$(slurp)\" ~/Pictures/Screenshots/$(date +'%Y-%m-%d_%H-%M-%S').png", NULL };
+	static const char *screenshotclipboardcmd[] = { "sh", "-c",
+	  "slurp | grim -g - - | wl-copy", NULL };
+	/* ... */
+	{ 0,     XKB_KEY_Print, spawn, {.v = screenshotcmd} },
+	{ MODKEY, XKB_KEY_Print, spawn, {.v = screenshotclipboardcmd} },
 
 STATUS
 ------
