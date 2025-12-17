@@ -125,6 +125,7 @@ void destroyidleinhibitor(struct wl_listener *listener, void *data);
 static void destroynotify(struct wl_listener *listener, void *data);
 void destroypointerconstraint(struct wl_listener *listener, void *data);
 void destroykeyboardgroup(struct wl_listener *listener, void *data);
+void debugstate(const Arg *arg);
 static Monitor *dirtomon(enum wlr_direction dir);
 static VirtualOutput *voutneighbor(VirtualOutput *from, enum wlr_direction dir);
 void focusclient(Client *c, int lift);
@@ -735,7 +736,7 @@ tabhdrupdate(Monitor *m, VirtualOutput *vout, struct wlr_box area, Client *activ
 void
 arrange(Monitor *m)
 {
-	Client *c;
+	Client *c, *fs_client;
 	VirtualOutput *vout;
 	VirtualOutput *prev_focus = focusvout(m);
 
@@ -746,6 +747,25 @@ arrange(Monitor *m)
 		if (c->mon == m) {
 			wlr_scene_node_set_enabled(&c->scene->node, VISIBLEON(c, m));
 			client_set_suspended(c, !VISIBLEON(c, m));
+		}
+	}
+
+	/* hide non-fullscreen clients when a fullscreen client exists on each vout */
+	wl_list_for_each(vout, &m->vouts, link) {
+		fs_client = NULL;
+		wl_list_for_each(c, &fstack, flink) {
+			if (c->ws == vout->ws && c->isfullscreen && !client_is_unmanaged(c)) {
+				fs_client = c;
+				break;
+			}
+		}
+		if (fs_client) {
+			wl_list_for_each(c, &clients, link) {
+				if (c->ws == vout->ws && c != fs_client && !client_is_unmanaged(c)) {
+					wlr_scene_node_set_enabled(&c->scene->node, 0);
+					client_set_suspended(c, 1);
+				}
+			}
 		}
 	}
 
@@ -1125,6 +1145,109 @@ createmon(struct wl_listener *listener, void *data)
 	}
 	arrange(m);
 	updateipc();
+}
+
+void
+debugstate(const Arg *arg)
+{
+	/* dump compositor state to /tmp/vwl-debug.txt for debugging */
+	FILE *f;
+	Monitor *m;
+	VirtualOutput *vout;
+	Workspace *ws;
+	Client *c;
+	int client_count = 0;
+	time_t now;
+	char timebuf[64];
+
+	f = fopen("/tmp/vwl-debug.txt", "w");
+	if (!f) {
+		wlr_log(WLR_ERROR, "debugstate: failed to open /tmp/vwl-debug.txt");
+		return;
+	}
+
+	now = time(NULL);
+	strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", localtime(&now));
+	fprintf(f, "=== vwl debug state dump ===\n");
+	fprintf(f, "timestamp: %s\n", timebuf);
+	fprintf(f, "selmon: %s\n", selmon ? selmon->wlr_output->name : "(null)");
+	fprintf(f, "selvout: %s\n", selvout ? selvout->name : "(null)");
+	fprintf(f, "selws: %s (id=%u)\n", selws ? selws->name : "(null)", selws ? selws->id : 0);
+	fprintf(f, "locked: %d\n", locked);
+	fprintf(f, "cursor_mode: %u\n", cursor_mode);
+
+	fprintf(f, "\n--- monitors ---\n");
+	wl_list_for_each(m, &mons, link) {
+		fprintf(f, "monitor: %s\n", m->wlr_output->name);
+		fprintf(f, "  monitor_area: x=%d y=%d w=%d h=%d\n",
+			m->monitor_area.x, m->monitor_area.y,
+			m->monitor_area.width, m->monitor_area.height);
+		fprintf(f, "  window_area: x=%d y=%d w=%d h=%d\n",
+			m->window_area.x, m->window_area.y,
+			m->window_area.width, m->window_area.height);
+		fprintf(f, "  focus_vout: %s\n", m->focus_vout ? m->focus_vout->name : "(null)");
+		fprintf(f, "  asleep: %d\n", m->asleep);
+
+		fprintf(f, "  virtual outputs:\n");
+		wl_list_for_each(vout, &m->vouts, link) {
+			fprintf(f, "    vout: %s (id=%u)\n", vout->name, vout->id);
+			fprintf(f, "      layout_geom: x=%d y=%d w=%d h=%d\n",
+				vout->layout_geom.x, vout->layout_geom.y,
+				vout->layout_geom.width, vout->layout_geom.height);
+			fprintf(f, "      active_ws: %s (id=%u)\n",
+				vout->ws ? vout->ws->name : "(null)",
+				vout->ws ? vout->ws->id : 0);
+			fprintf(f, "      mfact: %.2f, nmaster: %d, layout: %s\n",
+				vout->mfact, vout->nmaster, vout->ltsymbol);
+
+			fprintf(f, "      workspaces:\n");
+			wl_list_for_each(ws, &vout->workspaces, link) {
+				fprintf(f, "        ws: %s (id=%u)%s\n",
+					ws->name, ws->id,
+					ws == vout->ws ? " [active]" : "");
+			}
+		}
+	}
+
+	fprintf(f, "\n--- clients ---\n");
+	wl_list_for_each(c, &clients, link) {
+		const char *appid = client_get_appid(c);
+		const char *title = client_get_title(c);
+		Monitor *cmon = CLIENT_MON(c);
+		VirtualOutput *cvout = CLIENT_VOUT(c);
+
+		client_count++;
+		fprintf(f, "client %d: appid=\"%s\" title=\"%s\"\n", client_count, appid, title);
+		fprintf(f, "  type: %s\n",
+			c->type == XDGShell ? "xdg" :
+			c->type == X11 ? "x11" : "unknown");
+		fprintf(f, "  geom: x=%d y=%d w=%d h=%d\n",
+			c->geom.x, c->geom.y, c->geom.width, c->geom.height);
+		fprintf(f, "  prev: x=%d y=%d w=%d h=%d\n",
+			c->prev.x, c->prev.y, c->prev.width, c->prev.height);
+		fprintf(f, "  mon: %s\n", cmon ? cmon->wlr_output->name : "(null)");
+		fprintf(f, "  vout: %s\n", cvout ? cvout->name : "(null)");
+		fprintf(f, "  ws: %s (id=%u)\n",
+			c->ws ? c->ws->name : "(null)", c->ws ? c->ws->id : 0);
+		fprintf(f, "  isfloating: %d, isfullscreen: %d (mode=%d), isurgent: %d\n",
+			c->isfloating, c->isfullscreen, c->fullscreen_mode, c->isurgent);
+		fprintf(f, "  bw: %u, resize: %u\n", c->bw, c->resize);
+		fprintf(f, "  visible: %d\n", cmon && VISIBLEON(c, cmon));
+		fprintf(f, "  scene_node enabled: %d\n", c->scene->node.enabled);
+	}
+	fprintf(f, "\ntotal clients: %d\n", client_count);
+
+	fprintf(f, "\n--- focus stack (fstack order) ---\n");
+	client_count = 0;
+	wl_list_for_each(c, &fstack, flink) {
+		client_count++;
+		fprintf(f, "%d: appid=\"%s\" title=\"%s\" ws=%u\n",
+			client_count, client_get_appid(c), client_get_title(c),
+			c->ws ? c->ws->id : 0);
+	}
+
+	fclose(f);
+	wlr_log(WLR_INFO, "debugstate: wrote /tmp/vwl-debug.txt");
 }
 
 void
@@ -2024,7 +2147,7 @@ setworkspace(Client *c, Workspace *ws)
 void
 setup(void)
 {
-	int drm_fd, i, sig[] = {SIGCHLD, SIGINT, SIGTERM, SIGPIPE};
+	int drm_fd, i, sig[] = {SIGCHLD, SIGINT, SIGTERM, SIGPIPE, SIGUSR1};
 	struct sigaction sa = {.sa_flags = SA_RESTART, .sa_handler = handlesig};
 	const VirtualOutputRule *defvorule = NULL;
 	size_t j;
@@ -3100,8 +3223,10 @@ wsattach(VirtualOutput *vout, Workspace *ws)
 		return;
 	old = ws->vout;
 	if (old) {
-		if (old->ws == ws)
+		if (old->ws == ws) {
 			wssave(old);
+			old->ws = NULL;
+		}
 		wl_list_remove(&ws->link);
 	}
 	ws->vout = vout;
