@@ -3117,6 +3117,9 @@ wsattach(VirtualOutput *vout, Workspace *ws)
 			old->ws = NULL;
 		}
 		wl_list_remove(&ws->link);
+		/* activate another workspace on old vout if available */
+		if (!old->ws && !wl_list_empty(&old->workspaces))
+			wsactivate(old, wsfirst(old), 0);
 	}
 	ws->vout = vout;
 	wsinsert(vout, ws);
