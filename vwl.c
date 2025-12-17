@@ -2523,10 +2523,13 @@ unmapnotify(struct wl_listener *listener, void *data)
 			focusclient(focustop(selmon), 1);
 		}
 	} else {
+		Monitor *m = c->mon;
 		wl_list_remove(&c->link);
 		/* Preserve workspace during VT recovery or when vout is NULL */
 		if (!vt_recovery_mode && c->ws && c->ws->vout)
 			setworkspace(c, NULL);
+		else if (m)
+			arrange(m);
 		wl_list_remove(&c->flink);
 	}
 
