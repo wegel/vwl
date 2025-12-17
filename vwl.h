@@ -31,9 +31,9 @@
 #define LISTEN_STATIC(E, H)     do { struct wl_listener *_l = ecalloc(1, sizeof(*_l)); _l->notify = (H); wl_signal_add((E), _l); } while (0)
 
 /* enums */
-enum { CurNormal, CurPressed, CurMove, CurResize }; /* cursor */
+enum { CurNormal, CurPressed }; /* cursor */
 enum { XDGShell, LayerShell, X11 }; /* client types */
-enum { LyrBg, LyrBottom, LyrTile, LyrFloat, LyrTop, LyrFS, LyrOverlay, LyrBlock, NUM_LAYERS }; /* scene layers */
+enum { LyrBg, LyrBottom, LyrTile, LyrTop, LyrFS, LyrOverlay, LyrBlock, NUM_LAYERS }; /* scene layers */
 enum { FS_NONE, FS_VIRTUAL, FS_MONITOR }; /* fullscreen modes */
 enum TabHdrPos { TABHDR_TOP, TABHDR_BOTTOM };
 
@@ -111,7 +111,7 @@ struct Client {
 #endif
 	unsigned int bw;
 	Workspace *ws;
-	int isfloating, isurgent, isfullscreen;
+	int isurgent, isfullscreen;
 	int fullscreen_mode;
 	uint32_t resize; /* configure serial of a pending resize */
 };
@@ -268,7 +268,6 @@ struct Rule {
 	const char *id;
 	const char *title;
 	unsigned int workspace;
-	int isfloating;
 	int monitor;
 };
 
@@ -315,8 +314,6 @@ extern Workspace *selws;
 extern VirtualOutput *selvout;
 extern KeyboardGroup *kb_group;
 extern unsigned int cursor_mode;
-extern Client *grabc;
-extern int grabcx, grabcy;
 extern int locked;
 extern void *exclusive_focus;
 extern CursorPhysical cursor_phys;

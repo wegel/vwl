@@ -148,7 +148,6 @@ void motionabsolute(struct wl_listener *listener, void *data);
 void motionnotify(uint32_t time, struct wlr_input_device *device, double sx,
 		double sy, double sx_unaccel, double sy_unaccel);
 void motionrelative(struct wl_listener *listener, void *data);
-void moveresize(const Arg *arg);
 void outputmgrapply(struct wl_listener *listener, void *data);
 void outputmgrapplyortest(struct wlr_output_configuration_v1 *config, int test);
 void outputmgrtest(struct wl_listener *listener, void *data);
@@ -162,7 +161,6 @@ static void resize(Client *c, struct wlr_box geo, int interact);
 static void run(char *startup_cmd);
 void setcursor(struct wl_listener *listener, void *data);
 void setcursorshape(struct wl_listener *listener, void *data);
-static void setfloating(Client *c, int floating);
 static void setfullscreen(Client *c, int fullscreen);
 void setlayout(const Arg *arg);
 void setmfact(const Arg *arg);
@@ -177,7 +175,6 @@ void tagmon(const Arg *arg);
 void tabbed(Monitor *m);
 void tabmove(const Arg *arg);
 void tile(Monitor *m);
-void togglefloating(const Arg *arg);
 void togglefullscreen(const Arg *arg);
 void toggletabbed(const Arg *arg);
 void moveworkspace(const Arg *arg);
@@ -324,7 +321,6 @@ applyrules(Client *c)
 	for (r = rules; r < END(rules); r++) {
 		if ((!r->title || strstr(title, r->title))
 				&& (!r->id || strstr(appid, r->id))) {
-			c->isfloating = r->isfloating;
 			if (r->workspace < WORKSPACE_COUNT)
 				workspace_id = r->workspace;
 			i = 0;
@@ -334,8 +330,6 @@ applyrules(Client *c)
 			}
 		}
 	}
-
-	c->isfloating |= client_is_float_type(c);
 	if (!mon)
 		mon = selmon;
 	if (workspace_id < WORKSPACE_COUNT)
@@ -666,7 +660,7 @@ tabhdrupdate(Monitor *m, VirtualOutput *vout, struct wlr_box area, Client *activ
 	}
 
 	wl_list_for_each(c, &clients, link) {
-		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) || c->isfloating ||
+		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) ||
 		    client_is_nonvirtual_fullscreen(c))
 			continue;
 		count++;
@@ -703,7 +697,7 @@ tabhdrupdate(Monitor *m, VirtualOutput *vout, struct wlr_box area, Client *activ
 		const char *render_title;
 		int w;
 
-		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) || c->isfloating ||
+		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) ||
 		    client_is_nonvirtual_fullscreen(c))
 			continue;
 		w = base_width + (idx < remainder ? 1 : 0);
@@ -777,25 +771,6 @@ arrange(Monitor *m)
 		m->focus_vout = vout;
 		strncpy(vout->ltsymbol, vout->lt[vout->sellt]->symbol, LENGTH(vout->ltsymbol));
 		vout->ltsymbol[LENGTH(vout->ltsymbol) - 1] = '\0';
-
-		/* We move all clients (except fullscreen and unmanaged) to LyrTile while
-		 * in floating layout to avoid "real" floating clients be always on top */
-		wl_list_for_each(c, &clients, link) {
-			struct wlr_scene_tree *parent = c->scene->node.parent;
-
-			if (CLIENT_VOUT(c) != vout || c->mon != m || c->scene->node.parent == layers[LyrFS])
-				continue;
-
-			if (c->isfloating) {
-				if (!vout->lt[vout->sellt]->arrange)
-					parent = layers[LyrTile];
-				else
-					parent = layers[LyrFloat];
-			}
-
-			if (parent != c->scene->node.parent)
-				wlr_scene_node_reparent(&c->scene->node, parent);
-		}
 
 		if (vout->lt[vout->sellt]->arrange) {
 			vout->lt[vout->sellt]->arrange(m);
@@ -898,9 +873,6 @@ closemon(Monitor *m)
 		wsactivate(target_vout, wsfirst(target_vout), 0);
 
 	wl_list_for_each(c, &clients, link) {
-		if (c->isfloating && c->geom.x > m->monitor_area.width)
-			resize(c, (struct wlr_box){.x = c->geom.x - m->window_area.width, .y = c->geom.y,
-					.width = c->geom.width, .height = c->geom.height}, 0);
 		if (c->mon == m)
 			setworkspace(c, c->ws);
 	}
@@ -934,7 +906,7 @@ commitnotify(struct wl_listener *listener, void *data)
 		return;
 	}
 
-	resize(c, c->geom, (c->isfloating && !c->isfullscreen));
+	resize(c, c->geom, 0);
 
 	/* mark a pending resize as completed */
 	if (c->resize && c->resize <= c->surface.xdg->current.configure_serial)
@@ -1229,8 +1201,8 @@ debugstate(const Arg *arg)
 		fprintf(f, "  vout: %s\n", cvout ? cvout->name : "(null)");
 		fprintf(f, "  ws: %s (id=%u)\n",
 			c->ws ? c->ws->name : "(null)", c->ws ? c->ws->id : 0);
-		fprintf(f, "  isfloating: %d, isfullscreen: %d (mode=%d), isurgent: %d\n",
-			c->isfloating, c->isfullscreen, c->fullscreen_mode, c->isurgent);
+		fprintf(f, "  isfullscreen: %d (mode=%d), isurgent: %d\n",
+			c->isfullscreen, c->fullscreen_mode, c->isurgent);
 		fprintf(f, "  bw: %u, resize: %u\n", c->bw, c->resize);
 		fprintf(f, "  visible: %d\n", cmon && VISIBLEON(c, cmon));
 		fprintf(f, "  scene_node enabled: %d\n", c->scene->node.enabled);
@@ -1557,21 +1529,16 @@ focusstack(const Arg *arg)
 	Client *c, *sel = focustop(selmon);
 	VirtualOutput *vout = focusvout(selmon);
 	bool restrict_to_vout = false;
-	const Layout *layout;
 	if (!sel || tiling_locked_by_fullscreen(sel))
 		return;
 	if (vout && vout->lt[vout->sellt] && vout->lt[vout->sellt]->arrange == tabbed)
 		restrict_to_vout = true;
-	layout = vout ? vout->lt[vout->sellt] : NULL;
 	c = sel;
 	if (arg->i > 0) {
 		wl_list_for_each(c, &sel->link, link) {
 			if (&c->link == &clients)
 				continue; /* wrap past the sentinel node */
 			if (restrict_to_vout && CLIENT_VOUT(c) != vout)
-				continue;
-			/* skip floating windows in tabbed mode */
-			if (layout && layout->arrange == tabbed && c->isfloating)
 				continue;
 			if (VISIBLEON(c, selmon))
 				break; /* found it */
@@ -1581,9 +1548,6 @@ focusstack(const Arg *arg)
 			if (&c->link == &clients)
 				continue; /* wrap past the sentinel node */
 			if (restrict_to_vout && CLIENT_VOUT(c) != vout)
-				continue;
-			/* skip floating windows in tabbed mode */
-			if (layout && layout->arrange == tabbed && c->isfloating)
 				continue;
 			if (VISIBLEON(c, selmon))
 				break; /* found it */
@@ -1606,7 +1570,7 @@ tabmove(const Arg *arg)
 		return;
 	if (!vout->lt[vout->sellt] || vout->lt[vout->sellt]->arrange != tabbed)
 		return;
-	if (CLIENT_VOUT(sel) != vout || sel->isfloating || client_is_nonvirtual_fullscreen(sel))
+	if (CLIENT_VOUT(sel) != vout || client_is_nonvirtual_fullscreen(sel))
 		return;
 
 	dir = arg->i;
@@ -1617,7 +1581,7 @@ tabmove(const Arg *arg)
 		for (link = sel->link.next; link != &clients; link = link->next) {
 			Client *c = wl_container_of(link, sel, link);
 			if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, selmon)
-					|| c->isfloating || client_is_nonvirtual_fullscreen(c))
+					|| client_is_nonvirtual_fullscreen(c))
 				continue;
 			target = c;
 			break;
@@ -1630,7 +1594,7 @@ tabmove(const Arg *arg)
 		for (link = sel->link.prev; link != &clients; link = link->prev) {
 			Client *c = wl_container_of(link, sel, link);
 			if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, selmon)
-					|| c->isfloating || client_is_nonvirtual_fullscreen(c))
+					|| client_is_nonvirtual_fullscreen(c))
 				continue;
 			target = c;
 			break;
@@ -1701,8 +1665,8 @@ mapnotify(struct wl_listener *listener, void *data)
 
 	/* Handle unmanaged clients first so we can return prior create borders */
 	if (client_is_unmanaged(c)) {
-		/* Unmanaged clients always are floating */
-		wlr_scene_node_reparent(&c->scene->node, layers[LyrFloat]);
+		/* Unmanaged clients are placed above tiles but below fullscreen */
+		wlr_scene_node_reparent(&c->scene->node, layers[LyrTop]);
 		wlr_scene_node_set_position(&c->scene->node, c->geom.x, c->geom.y);
 		client_set_size(c, c->geom.width, c->geom.height);
 		if (client_wants_focus(c)) {
@@ -1727,13 +1691,11 @@ mapnotify(struct wl_listener *listener, void *data)
 	wl_list_insert(clients.prev, &c->link);
 	wl_list_insert(&fstack, &c->flink);
 
-	/* Set initial workspace, floating status, and focus:
-	 * we always consider floating, clients that have parent and thus
-	 * we set the same workspace and monitor as its parent.
+	/* Set initial workspace and focus:
+	 * for clients with a parent, use the same workspace and monitor as parent.
 	 * If there is no parent, apply rules */
 	if ((p = client_get_parent(c))) {
 		Workspace *target_ws = p->ws;
-		c->isfloating = 1;
 		if (!target_ws && p->mon)
 			target_ws = MON_FOCUS_WS(p->mon);
 		setworkspace(c, target_ws);
@@ -1828,7 +1790,7 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 		wl_list_for_each(constraint, &pointer_constraints->constraints, link)
 			cursorconstrain(constraint);
 
-		if (active_constraint && cursor_mode != CurResize && cursor_mode != CurMove) {
+		if (active_constraint) {
 			toplevel_from_wlr_surface(active_constraint->surface, &c, NULL);
 			if (c && active_constraint->surface == seat->pointer_state.focused_surface) {
 				sx = cursor->x - c->geom.x - c->bw;
@@ -1869,20 +1831,6 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 	/* Update drag icon's position */
 	wlr_scene_node_set_position(&drag_icon->node, (int)round(cursor->x), (int)round(cursor->y));
 
-	/* If we are currently grabbing the mouse, handle and return */
-	if (cursor_mode == CurMove) {
-		/* Move the grabbed client to the new position. */
-		resize(grabc, (struct wlr_box){.x = (int)round(cursor->x) - grabcx, .y = (int)round(cursor->y) - grabcy,
-			.width = grabc->geom.width, .height = grabc->geom.height}, 1);
-		cursorsync();
-		return;
-	} else if (cursor_mode == CurResize) {
-		resize(grabc, (struct wlr_box){.x = grabc->geom.x, .y = grabc->geom.y,
-			.width = (int)round(cursor->x) - grabc->geom.x, .height = (int)round(cursor->y) - grabc->geom.y}, 1);
-		cursorsync();
-		return;
-	}
-
 	/* If there's no client surface under the cursor, set the cursor image to a
 	 * default. This is what makes the cursor image appear when you move it
 	 * off of a client or over its border. */
@@ -1891,35 +1839,6 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 
 	pointerfocus(c, surface, sx, sy, time);
 	cursorsync();
-}
-
-void
-moveresize(const Arg *arg)
-{
-	if (cursor_mode != CurNormal && cursor_mode != CurPressed)
-		return;
-	xytonode(cursor->x, cursor->y, NULL, &grabc, NULL, NULL, NULL);
-	if (!grabc || client_is_unmanaged(grabc) || grabc->isfullscreen)
-		return;
-
-	/* Float the window and tell motionnotify to grab it */
-	setfloating(grabc, 1);
-	switch (cursor_mode = arg->ui) {
-	case CurMove:
-		grabcx = (int)round(cursor->x) - grabc->geom.x;
-		grabcy = (int)round(cursor->y) - grabc->geom.y;
-		wlr_cursor_set_xcursor(cursor, cursor_mgr, "all-scroll");
-		break;
-	case CurResize:
-		/* Doesn't work for X11 output - the next absolute motion event
-		 * returns the cursor to where it started */
-		wlr_cursor_warp_closest(cursor, NULL,
-				grabc->geom.x + grabc->geom.width,
-				grabc->geom.y + grabc->geom.height);
-		wlr_cursor_set_xcursor(cursor, cursor_mgr, "se-resize");
-		cursorsync();
-		break;
-	}
 }
 
 void
@@ -2020,22 +1939,6 @@ run(char *startup_cmd)
 }
 
 void
-setfloating(Client *c, int floating)
-{
-	Client *p = client_get_parent(c);
-	VirtualOutput *vout = CLIENT_VOUT(c);
-	c->isfloating = floating;
-	/* If in floating layout do not change the client's layer */
-	if (!vout || !client_surface(c)->mapped || !vout->lt[vout->sellt]->arrange)
-		return;
-	wlr_scene_node_reparent(&c->scene->node, layers[c->isfullscreen ||
-			(p && p->isfullscreen) ? LyrFS
-			: c->isfloating ? LyrFloat : LyrTile]);
-	arrange(c->mon);
-	updateipc();
-}
-
-void
 setfullscreen(Client *c, int fullscreen)
 {
 	VirtualOutput *vout;
@@ -2054,7 +1957,7 @@ setfullscreen(Client *c, int fullscreen)
 		if (c->fullscreen_mode == FS_MONITOR || !vout)
 			wlr_scene_node_reparent(&c->scene->node, layers[LyrFS]);
 		else
-			wlr_scene_node_reparent(&c->scene->node, layers[LyrFloat]);
+			wlr_scene_node_reparent(&c->scene->node, layers[LyrTop]);
 		target = c->mon->monitor_area;
 		if (c->fullscreen_mode == FS_VIRTUAL && vout && vout->layout_geom.width && vout->layout_geom.height) {
 			target = vout->layout_geom;
@@ -2071,9 +1974,7 @@ setfullscreen(Client *c, int fullscreen)
 		if (c->fullscreen_mode == FS_VIRTUAL)
 			wlr_scene_node_raise_to_top(&c->scene->node);
 	} else {
-		wlr_scene_node_reparent(&c->scene->node, layers[c->isfloating ? LyrFloat : LyrTile]);
-		/* restore previous size instead of arrange for floating windows since
-		 * client positions are set by the user and cannot be recalculated */
+		wlr_scene_node_reparent(&c->scene->node, layers[LyrTile]);
 		c->fullscreen_mode = FS_NONE;
 		resize(c, c->prev, 0);
 	}
@@ -2137,7 +2038,7 @@ setworkspace(Client *c, Workspace *ws)
 	if (c->mon) {
 		resize(c, c->geom, 0);
 		setfullscreen(c, c->isfullscreen);
-		setfloating(c, c->isfloating);
+		arrange(c->mon);
 	}
 
 	if (selmon && workspace_changed)
@@ -2514,7 +2415,7 @@ tabbed(Monitor *m)
 		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m))
 			continue;
 		virtual_fs = client_is_virtual_fullscreen(c);
-		if (c->isfloating || (!virtual_fs && c->isfullscreen))
+		if (!virtual_fs && c->isfullscreen)
 			continue;
 		count++;
 		if (c == active) {
@@ -2553,7 +2454,7 @@ tile(Monitor *m)
 	area = (vout->layout_geom.width && vout->layout_geom.height) ? vout->layout_geom : m->window_area;
 
 	wl_list_for_each(c, &clients, link)
-		if (CLIENT_VOUT(c) == vout && VISIBLEON(c, m) && !c->isfloating && !c->isfullscreen)
+		if (CLIENT_VOUT(c) == vout && VISIBLEON(c, m) && !c->isfullscreen)
 			n++;
 	if (n == 0)
 		return;
@@ -2564,7 +2465,7 @@ tile(Monitor *m)
 		mw = area.width;
 	i = my = ty = 0;
 	wl_list_for_each(c, &clients, link) {
-		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) || c->isfloating || c->isfullscreen)
+		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) || c->isfullscreen)
 			continue;
 		if (i < vout->nmaster) {
 			resize(c, (struct wlr_box){.x = area.x, .y = area.y + my, .width = mw,
@@ -2577,17 +2478,6 @@ tile(Monitor *m)
 		}
 		i++;
 	}
-}
-
-void
-togglefloating(const Arg *arg)
-{
-	Client *sel = focustop(selmon);
-	VirtualOutput *vout = focusvout(selmon);
-	const Layout *layout = vout ? vout->lt[vout->sellt] : NULL;
-	/* return if fullscreen or in tabbed mode */
-	if (sel && !sel->isfullscreen && !(layout && layout->arrange == tabbed))
-		setfloating(sel, !sel->isfloating);
 }
 
 void
@@ -2626,10 +2516,6 @@ unmapnotify(struct wl_listener *listener, void *data)
 {
 	/* Called when the surface is unmapped, and should no longer be shown. */
 	Client *c = wl_container_of(listener, c, unmap);
-	if (c == grabc) {
-		cursor_mode = CurNormal;
-		grabc = NULL;
-	}
 
 	if (client_is_unmanaged(c)) {
 		if (c == exclusive_focus) {
@@ -2900,7 +2786,7 @@ zoom(const Arg *arg)
 	Client *c, *sel = focustop(selmon);
 	VirtualOutput *vout = focusvout(selmon);
 
-	if (!sel || !vout || !vout->lt[vout->sellt]->arrange || sel->isfloating)
+	if (!sel || !vout || !vout->lt[vout->sellt]->arrange)
 		return;
 	if (tiling_locked_by_fullscreen(sel))
 		return;
@@ -2908,7 +2794,7 @@ zoom(const Arg *arg)
 	/* Search for the first tiled window that is not sel, marking sel as
 	 * NULL if we pass it along the way */
 	wl_list_for_each(c, &clients, link) {
-		if (VISIBLEON(c, selmon) && !c->isfloating) {
+		if (VISIBLEON(c, selmon)) {
 			if (c != sel)
 				break;
 			sel = NULL;
@@ -3080,7 +2966,7 @@ createvout(Monitor *m, const char *name)
 	else
 		wl_list_insert(m->vouts.prev, &vout->link);
 	wl_list_init(&vout->workspaces);
-	vout->tabhdr = wlr_scene_tree_create(layers[LyrFloat]);
+	vout->tabhdr = wlr_scene_tree_create(layers[LyrTop]);
 	if (vout->tabhdr)
 		wlr_scene_node_set_enabled(&vout->tabhdr->node, 0);
 	if (!m->focus_vout)
@@ -3343,7 +3229,7 @@ configurex11(struct wl_listener *listener, void *data)
 		return;
 	}
 	vout = CLIENT_VOUT(c);
-	if ((c->isfloating && c != grabc) || !vout || !vout->lt[vout->sellt]->arrange) {
+	if (!vout || !vout->lt[vout->sellt]->arrange) {
 		resize(c, (struct wlr_box){.x = event->x - c->bw,
 				.y = event->y - c->bw, .width = event->width + c->bw * 2,
 				.height = event->height + c->bw * 2}, 0);

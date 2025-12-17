@@ -42,17 +42,16 @@ __attribute__((unused)) static int log_level = WLR_ERROR;
 
 /* NOTE: ALWAYS keep a rule declared even if you don't use rules (e.g leave at least one example) */
 static const Rule rules[] = {
-	/* app_id             title       workspace  isfloating   monitor */
+	/* app_id             title       workspace  monitor */
 	/* examples: */
-	{ "Gimp_EXAMPLE",     NULL,       0,          1,           -1 }, /* Start on workspace 0 floating */
-	{ "firefox_EXAMPLE",  NULL,       2,          0,           -1 }, /* Start on workspace 2 tiled */
+	{ "Gimp_EXAMPLE",     NULL,       0,         -1 },
+	{ "firefox_EXAMPLE",  NULL,       2,         -1 },
 };
 
 /* layout(s) */
 static const Layout layouts[] = {
 	/* symbol     arrange function */
 	{ "[]=",      tile },
-	{ "><>",      NULL },    /* no layout function means floating behavior */
 	{ "[T]",      tabbed },
 };
 
@@ -179,9 +178,8 @@ static const Key keys[] = {
 	{ MODKEY,                    XKB_KEY_l,          setmfact,       {.f = +0.05f} },
 	{ MODKEY,                    XKB_KEY_m,          zoom,           {0} },
 	{ MODKEY,                    XKB_KEY_f,          togglefullscreen,{0} },
-	{ MODKEY,                    XKB_KEY_t,          toggletabbed,   {.v = &layouts[2]} },
+	{ MODKEY,                    XKB_KEY_t,          toggletabbed,   {.v = &layouts[1]} },
 	{ MODKEY,                    XKB_KEY_space,      setlayout,      {0} },
-	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_space,      togglefloating, {0} },
 	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_E,          quit,           {0} },
 	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_D,          debugstate,     {0} },
 	{ MODKEY,                    XKB_KEY_comma,      focusmon,       {.i = WLR_DIRECTION_LEFT} },
@@ -218,7 +216,5 @@ static const Key keys[] = {
 
 
 static const Button buttons[] = {
-	{ MODKEY, BTN_LEFT,   moveresize,     {.ui = CurMove} },
-	{ MODKEY, BTN_MIDDLE, togglefloating, {0} },
-	{ MODKEY, BTN_RIGHT,  moveresize,     {.ui = CurResize} },
+	{ 0, 0, NULL, {0} },
 };

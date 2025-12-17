@@ -62,9 +62,7 @@ void setmfact(const Arg *arg);
 void zoom(const Arg *arg);
 void togglefullscreen(const Arg *arg);
 void toggletabbed(const Arg *arg);
-void togglefloating(const Arg *arg);
 void setlayout(const Arg *arg);
-void moveresize(const Arg *arg);
 void focusmon(const Arg *arg);
 void tagmon(const Arg *arg);
 void moveworkspace(const Arg *arg);
@@ -120,8 +118,6 @@ Workspace *selws;
 VirtualOutput *selvout;
 KeyboardGroup *kb_group;
 unsigned int cursor_mode;
-Client *grabc;
-int grabcx, grabcy;
 int locked;
 void *exclusive_focus;
 CursorPhysical cursor_phys;
@@ -373,25 +369,6 @@ buttonpress(struct wl_listener *listener, void *data)
 		}
 		break;
 	case WL_POINTER_BUTTON_STATE_RELEASED:
-		/* If you released any buttons, we exit interactive move/resize mode. */
-		/* TODO: should reset to the pointer focus's current setcursor */
-		if (!locked && cursor_mode != CurNormal && cursor_mode != CurPressed) {
-			wlr_cursor_set_xcursor(cursor, cursor_mgr, "default");
-			cursor_mode = CurNormal;
-			/* Drop the window off on its new monitor */
-			selmon = xytomon(cursor->x, cursor->y);
-			if (selmon) {
-				VirtualOutput *hover_vout = voutat(selmon, cursor->x, cursor->y);
-				if (hover_vout) {
-					selmon->focus_vout = hover_vout;
-					selvout = hover_vout;
-					if (hover_vout->ws)
-						setworkspace(grabc, hover_vout->ws);
-				}
-			}
-			grabc = NULL;
-			return;
-		}
 		cursor_mode = CurNormal;
 		break;
 	}
@@ -855,7 +832,7 @@ rendermon(struct wl_listener *listener, void *data)
 	/* Render if no XDG clients have an outstanding resize and are visible on
 	 * this monitor. */
 	wl_list_for_each(c, &clients, link) {
-		if (c->resize && !c->isfloating && client_is_rendered_on_mon(c, m) && !client_is_stopped(c))
+		if (c->resize && client_is_rendered_on_mon(c, m) && !client_is_stopped(c))
 			goto skip;
 	}
 
@@ -1778,7 +1755,7 @@ ipc_output_printstatus_to(IPCOutput *ipc_output)
 		is_tabbed = 1;
 		wl_list_for_each(tab, &clients, link) {
 			if (CLIENT_VOUT(tab) != active_vout || !VISIBLEON(tab, monitor) ||
-			    tab->isfloating || client_is_nonvirtual_fullscreen(tab))
+			    client_is_nonvirtual_fullscreen(tab))
 				continue;
 			if (tab == focused)
 				tab_index = idx;
@@ -1797,8 +1774,7 @@ ipc_output_printstatus_to(IPCOutput *ipc_output)
 		focused ? client_get_appid(focused) : "");
 	zvwl_ipc_output_v1_send_fullscreen(ipc_output->resource,
 		focused ? focused->isfullscreen : 0);
-	zvwl_ipc_output_v1_send_floating(ipc_output->resource,
-		focused ? focused->isfloating : 0);
+	zvwl_ipc_output_v1_send_floating(ipc_output->resource, 0);
 	zvwl_ipc_output_v1_send_tabbed(ipc_output->resource,
 		is_tabbed, tab_count, tab_index);
 
@@ -1808,7 +1784,7 @@ ipc_output_printstatus_to(IPCOutput *ipc_output)
 		int idx = 0;
 		wl_list_for_each(tab, &clients, link) {
 			if (CLIENT_VOUT(tab) != active_vout || !VISIBLEON(tab, monitor) ||
-			    tab->isfloating || client_is_nonvirtual_fullscreen(tab))
+			    client_is_nonvirtual_fullscreen(tab))
 				continue;
 			zvwl_ipc_output_v1_send_tab_window(ipc_output->resource,
 				idx,
