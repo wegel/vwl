@@ -71,6 +71,7 @@ void moveworkspace(const Arg *arg);
 void view(const Arg *arg);
 void tag(const Arg *arg);
 void chvt(const Arg *arg);
+void debugstate(const Arg *arg);
 
 /* Forward declarations for functions needed from vwl.c */
 VirtualOutput *focusvout(Monitor *m);
@@ -234,6 +235,8 @@ handlesig(int signo)
 		while (waitpid(-1, NULL, WNOHANG) > 0);
 	else if (signo == SIGINT || signo == SIGTERM)
 		quit(NULL);
+	else if (signo == SIGUSR1)
+		debugstate(NULL);
 }
 
 void
