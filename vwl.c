@@ -2533,8 +2533,8 @@ unmapnotify(struct wl_listener *listener, void *data)
 		wl_list_remove(&c->flink);
 	}
 
-	wlr_scene_node_destroy(&c->scene->node);
 	updateipc();
+	wlr_scene_node_destroy(&c->scene->node);
 	motionnotify(0, NULL, 0, 0, 0, 0);
 }
 
