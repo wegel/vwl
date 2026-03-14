@@ -66,7 +66,7 @@ update-loc:
 		TOTAL=$$(find . -name "*.c" -o -name "*.h" | grep -v -E "protocol|config\.h" | xargs wc -l | tail -1 | awk '{print $$1}'); \
 		VWL=$$(wc -l < vwl.c); \
 	fi; \
-	sed -i "s/^LOC: .*/LOC: $$TOTAL total, $$VWL vwl.c/" README
+	sed -i "s/^LOC: .*/LOC: $$TOTAL total, $$VWL vwl.c/" README.md
 
 clean:
 	rm -f vwl *.o *-protocol.h *-protocol.c
