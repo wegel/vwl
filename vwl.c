@@ -2525,12 +2525,12 @@ unmapnotify(struct wl_listener *listener, void *data)
 	} else {
 		Monitor *m = c->mon;
 		wl_list_remove(&c->link);
+		wl_list_remove(&c->flink);
 		/* Preserve workspace during VT recovery or when vout is NULL */
 		if (!vt_recovery_mode && c->ws && c->ws->vout)
 			setworkspace(c, NULL);
 		else if (m)
 			arrange(m);
-		wl_list_remove(&c->flink);
 	}
 
 	updateipc();
@@ -2611,14 +2611,14 @@ updatemons(struct wl_listener *listener, void *data)
 		arrangevout(m, &usable);
 		/* Don't move clients to the left output when plugging monitors */
 		arrange(m);
-		/* make sure fullscreen clients have the right size */
-		if ((c = focustop(m)) && c->isfullscreen) {
-			if (c->fullscreen_mode == FS_MONITOR) {
+		/* make sure all fullscreen clients have the right size */
+		wl_list_for_each(c, &clients, link) {
+			if (c->mon != m || !c->isfullscreen)
+				continue;
+			if (c->fullscreen_mode == FS_MONITOR)
 				resize(c, m->monitor_area, 0);
-			} else {
-				/* FS_VIRTUAL - call setfullscreen to recalc vout geometry */
+			else
 				setfullscreen(c, 1);
-			}
 		}
 
 		/* Try to re-set the gamma LUT when updating monitors,
