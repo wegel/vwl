@@ -1,0 +1,54 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:sid
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            xwayland: "0"
+          - name: xwayland
+            xwayland: "1"
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            libcairo2-dev \
+            libinput-dev \
+            libpango1.0-dev \
+            libpixman-1-dev \
+            libwayland-dev \
+            libwlroots-0.19-dev \
+            libxcb-icccm4-dev \
+            libxcb1-dev \
+            libxkbcommon-dev \
+            pkg-config \
+            wayland-protocols
+
+      - name: Enable XWayland build
+        if: matrix.xwayland == '1'
+        run: |
+          cat > config.local.mk <<'EOF'
+          XWAYLAND = -DXWAYLAND
+          XLIBS = xcb xcb-icccm
+          EOF
+
+      - name: Build
+        run: |
+          make clean
+          make
