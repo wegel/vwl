@@ -219,7 +219,6 @@ struct Monitor {
 	struct wlr_box window_area;  /* window area, layout-relative */
 	struct wl_list layers[4]; /* LayerSurface.link */
 	struct wl_list vouts; /* VirtualOutput.link */
-	struct wl_list ipc_outputs; /* IPCOutput.link */
 	VirtualOutput *focus_vout;
 	int gamma_lut_changed;
 	int asleep;
@@ -277,16 +276,6 @@ struct SessionLock {
 	struct wl_listener new_surface;
 	struct wl_listener unlock;
 	struct wl_listener destroy;
-};
-
-struct IPCOutput {
-	struct wl_list link;
-	struct wl_resource *resource;
-	Monitor *mon;
-};
-
-struct IPCManager {
-	struct wl_resource *resource;
 };
 
 /* Global variables - declarations (defined in plumbing.c) */
@@ -398,15 +387,13 @@ void destroysessionlock(struct wl_listener *listener, void *data);
 void unlocksession(struct wl_listener *listener, void *data);
 void quit(const Arg *arg);
 VirtualOutput *focusvout(Monitor *m);
-void ipc_manager_bind(struct wl_client *client, void *data, uint32_t version, uint32_t id);
-void ipc_manager_destroy(struct wl_resource *resource);
-void ipc_manager_get_output(struct wl_client *client, struct wl_resource *resource, uint32_t id, struct wl_resource *output);
-void ipc_manager_release(struct wl_client *client, struct wl_resource *resource);
-void ipc_output_destroy(struct wl_resource *resource);
-void ipc_output_printstatus(Monitor *monitor);
-void ipc_output_printstatus_to(IPCOutput *ipc_output);
-void ipc_output_release(struct wl_client *client, struct wl_resource *resource);
-void updateipc(void);
+Monitor *monitorbyname(const char *name);
+Workspace *wsbyid(unsigned int id);
+VirtualOutput *voutbyid(unsigned int id);
+VirtualOutput *findvoutbyname(Monitor *m, const char *name);
+int ipc_set_workspace_by_id(unsigned int workspace_id);
+int ipc_focus_virtual_output(VirtualOutput *vout);
+int ipc_move_workspace_to_vout(Workspace *ws, VirtualOutput *vout);
 void configurephys(Monitor *m, const MonitorRule *match);
 void updatephys(Monitor *m);
 

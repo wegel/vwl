@@ -44,11 +44,8 @@
 #endif
 
 #include "vwl.h"
+#include "ipc.h"
 #include "util.h"
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wshadow"
-#include "vwl-ipc-unstable-v1-protocol.h"
-#pragma GCC diagnostic pop
 
 /* Forward declarations needed by config.h */
 void tile(Monitor *m);
@@ -73,17 +70,6 @@ void debugstate(const Arg *arg);
 
 /* Forward declarations for functions needed from vwl.c */
 VirtualOutput *focusvout(Monitor *m);
-
-/* Forward declarations for IPC functions */
-void ipc_manager_bind(struct wl_client *client, void *data, uint32_t version, uint32_t id);
-void ipc_manager_destroy(struct wl_resource *resource);
-void ipc_manager_get_output(struct wl_client *client, struct wl_resource *resource, uint32_t id, struct wl_resource *output);
-void ipc_manager_release(struct wl_client *client, struct wl_resource *resource);
-void ipc_output_destroy(struct wl_resource *resource);
-void ipc_output_printstatus(Monitor *monitor);
-void ipc_output_printstatus_to(IPCOutput *ipc_output);
-void ipc_output_release(struct wl_client *client, struct wl_resource *resource);
-void updateipc(void);
 
 #include "config.h"
 
@@ -276,6 +262,7 @@ void
 cleanup(void)
 {
 	cleanuplisteners();
+	ipc_finish();
 #ifdef XWAYLAND
 	wlr_xwayland_destroy(xwayland);
 	xwayland = NULL;
@@ -1646,257 +1633,6 @@ updatephys(Monitor *m)
 	}
 }
 
-/* IPC Protocol Implementation */
-static struct zvwl_ipc_manager_v1_interface manager_implementation = {
-	.release = ipc_manager_release,
-	.get_output = ipc_manager_get_output
-};
-
-static struct zvwl_ipc_output_v1_interface output_implementation = {
-	.release = ipc_output_release,
-	.set_workspace = NULL,
-	.set_client_workspace = NULL,
-	.set_layout = NULL,
-	.set_virtual_output = NULL
-};
-
-void
-ipc_manager_bind(struct wl_client *client, void *data, uint32_t version, uint32_t id)
-{
-	struct wl_resource *manager_resource = wl_resource_create(client,
-		&zvwl_ipc_manager_v1_interface, version, id);
-
-	if (!manager_resource) {
-		wl_client_post_no_memory(client);
-		return;
-	}
-
-	wl_resource_set_implementation(manager_resource, &manager_implementation, NULL, ipc_manager_destroy);
-
-	/* Send available layouts */
-	for (size_t i = 0; i < LENGTH(layouts); i++)
-		zvwl_ipc_manager_v1_send_layout(manager_resource, layouts[i].symbol);
-}
-
-void
-ipc_manager_destroy(struct wl_resource *resource)
-{
-}
-
-void
-ipc_manager_get_output(struct wl_client *client, struct wl_resource *resource,
-	uint32_t id, struct wl_resource *output)
-{
-	IPCOutput *ipc_output;
-	Monitor *monitor = wlr_output_from_resource(output)->data;
-	struct wl_resource *output_resource = wl_resource_create(client,
-		&zvwl_ipc_output_v1_interface, wl_resource_get_version(resource), id);
-
-	if (!output_resource)
-		return;
-
-	ipc_output = ecalloc(1, sizeof(*ipc_output));
-	ipc_output->resource = output_resource;
-	ipc_output->mon = monitor;
-	wl_resource_set_implementation(output_resource, &output_implementation, ipc_output, ipc_output_destroy);
-	wl_list_insert(&monitor->ipc_outputs, &ipc_output->link);
-	ipc_output_printstatus_to(ipc_output);
-}
-
-void
-ipc_manager_release(struct wl_client *client, struct wl_resource *resource)
-{
-	wl_resource_destroy(resource);
-}
-
-void
-ipc_output_destroy(struct wl_resource *resource)
-{
-	IPCOutput *ipc_output = wl_resource_get_user_data(resource);
-	wl_list_remove(&ipc_output->link);
-	free(ipc_output);
-}
-
-void
-ipc_output_printstatus(Monitor *monitor)
-{
-	IPCOutput *ipc_output;
-	wl_list_for_each(ipc_output, &monitor->ipc_outputs, link)
-		ipc_output_printstatus_to(ipc_output);
-}
-
-void
-ipc_output_printstatus_to(IPCOutput *ipc_output)
-{
-	Monitor *monitor = ipc_output->mon;
-	Client *c, *focused;
-	Workspace *ws;
-	VirtualOutput *vout, *active_vout;
-	unsigned int count;
-	int urgent;
-	int is_tabbed = 0, tab_count = 0, tab_index = 0;
-
-	active_vout = focusvout(monitor);
-	ws = active_vout ? active_vout->ws : NULL;
-
-	count = 0;
-	urgent = 0;
-	wl_list_for_each(c, &clients, link) {
-		if (c->ws != ws)
-			continue;
-		count++;
-		if (c->isurgent)
-			urgent = 1;
-	}
-
-	focused = focustop(monitor);
-
-	/* Check if layout is tabbed and count visible clients */
-	if (active_vout && active_vout->lt[active_vout->sellt] &&
-	    active_vout->lt[active_vout->sellt]->arrange == tabbed) {
-		Client *tab;
-		int idx = 0;
-		is_tabbed = 1;
-		wl_list_for_each(tab, &clients, link) {
-			if (CLIENT_VOUT(tab) != active_vout || !VISIBLEON(tab, monitor) ||
-			    client_is_nonvirtual_fullscreen(tab))
-				continue;
-			if (tab == focused)
-				tab_index = idx;
-			idx++;
-			tab_count++;
-		}
-	}
-
-	/* Send output status events */
-	zvwl_ipc_output_v1_send_active(ipc_output->resource, monitor == selmon);
-	zvwl_ipc_output_v1_send_workspace(ipc_output->resource,
-		ws ? ws->id : 0, ws ? ws->name : "");
-	zvwl_ipc_output_v1_send_title(ipc_output->resource,
-		focused ? client_get_title(focused) : "");
-	zvwl_ipc_output_v1_send_appid(ipc_output->resource,
-		focused ? client_get_appid(focused) : "");
-	zvwl_ipc_output_v1_send_fullscreen(ipc_output->resource,
-		focused ? focused->isfullscreen : 0);
-	zvwl_ipc_output_v1_send_floating(ipc_output->resource, 0);
-	zvwl_ipc_output_v1_send_tabbed(ipc_output->resource,
-		is_tabbed, tab_count, tab_index);
-
-	/* Send individual tab window information if in tabbed mode */
-	if (is_tabbed) {
-		Client *tab;
-		int idx = 0;
-		wl_list_for_each(tab, &clients, link) {
-			if (CLIENT_VOUT(tab) != active_vout || !VISIBLEON(tab, monitor) ||
-			    client_is_nonvirtual_fullscreen(tab))
-				continue;
-			zvwl_ipc_output_v1_send_tab_window(ipc_output->resource,
-				idx,
-				client_get_title(tab) ? client_get_title(tab) : "",
-				client_get_appid(tab) ? client_get_appid(tab) : "",
-				tab == focused);
-			idx++;
-		}
-	}
-
-	zvwl_ipc_output_v1_send_urgent(ipc_output->resource, urgent);
-	zvwl_ipc_output_v1_send_clients(ipc_output->resource, count);
-	zvwl_ipc_output_v1_send_layout_symbol(ipc_output->resource,
-		active_vout ? active_vout->ltsymbol : "");
-
-	/* Send virtual output information */
-	zvwl_ipc_output_v1_send_virtual_output_begin(ipc_output->resource);
-
-	wl_list_for_each(vout, &monitor->vouts, link) {
-		Workspace *ws_iter;
-		int ws_idx;
-		for (ws_idx = 0; ws_idx < WORKSPACE_COUNT; ws_idx++) {
-			const Layout *layout = NULL;
-			unsigned int wcount = 0;
-			int wurgent = 0;
-			ws_iter = &workspaces[ws_idx];
-			if (ws_iter->vout != vout)
-				continue;
-			wl_list_for_each(c, &clients, link) {
-				if (c->ws != ws_iter)
-					continue;
-				wcount++;
-				if (c->isurgent)
-					wurgent = 1;
-			}
-			if (!wcount)
-				continue;
-			if (ws_iter->state.sellt < LENGTH(ws_iter->state.lt))
-				layout = ws_iter->state.lt[ws_iter->state.sellt];
-			if (!layout)
-				layout = vout->lt[vout->sellt];
-			zvwl_ipc_output_v1_send_virtual_output(ipc_output->resource,
-				vout->id, vout->name, ws_iter == vout->ws,
-				ws_iter->id, ws_iter->name,
-				wcount, wurgent,
-				layout ? layout->symbol : vout->ltsymbol);
-		}
-	}
-
-	/** emit additional workspaces on the selected monitor (even if
-	 * they currently have no vout) */
-	if (monitor == selmon) {
-		int ws_idx;
-		for (ws_idx = 0; ws_idx < WORKSPACE_COUNT; ws_idx++) {
-			Workspace *ws_iter = &workspaces[ws_idx];
-			VirtualOutput *home = ws_iter->vout;
-			Monitor *home_mon = home ? home->mon : NULL;
-			const Layout *layout = NULL;
-			unsigned int wcount = 0;
-			int wurgent = 0;
-
-			if (home_mon && home_mon != monitor)
-				continue;
-
-			wl_list_for_each(c, &clients, link) {
-				if (c->ws != ws_iter)
-					continue;
-				wcount++;
-				if (c->isurgent)
-					wurgent = 1;
-			}
-			if (!wcount)
-				continue;
-
-			if (ws_iter->state.sellt < LENGTH(ws_iter->state.lt))
-				layout = ws_iter->state.lt[ws_iter->state.sellt];
-			if (!layout && home)
-				layout = home->lt[home->sellt];
-
-			zvwl_ipc_output_v1_send_virtual_output(ipc_output->resource,
-				home ? home->id : 0,
-				home ? home->name : "",
-				home && home->ws == ws_iter,
-				ws_iter->id, ws_iter->name,
-				wcount, wurgent,
-				layout ? layout->symbol : (home ? home->ltsymbol : ""));
-		}
-	}
-
-	zvwl_ipc_output_v1_send_virtual_output_end(ipc_output->resource);
-	zvwl_ipc_output_v1_send_frame(ipc_output->resource);
-}
-
-void
-ipc_output_release(struct wl_client *client, struct wl_resource *resource)
-{
-	wl_resource_destroy(resource);
-}
-
-void
-updateipc(void)
-{
-	Monitor *m;
-	wl_list_for_each(m, &mons, link)
-		ipc_output_printstatus(m);
-	update_fullscreen_idle_inhibit();
-}
-
 void
 update_fullscreen_idle_inhibit(void)
 {
@@ -1987,4 +1723,3 @@ chvt(const Arg *arg)
 {
 	wlr_session_change_vt(session, arg->ui);
 }
-

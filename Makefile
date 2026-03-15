@@ -15,18 +15,23 @@ DWLDEVCFLAGS = -g -Wpedantic -Wall -Wextra -Wdeclaration-after-statement \
 PKGS      = wayland-server xkbcommon libinput cairo pangocairo $(XLIBS)
 DWLCFLAGS = `$(PKG_CONFIG) --cflags $(PKGS)` $(WLR_INCS) $(DWLCPPFLAGS) $(DWLDEVCFLAGS) $(CFLAGS)
 LDLIBS    = `$(PKG_CONFIG) --libs $(PKGS)` $(WLR_LIBS) -lm $(LIBS)
+TOOLCFLAGS = -I. $(DWLDEVCFLAGS) $(CFLAGS)
 
-all: vwl
+all: vwl vwlctl
 
-vwl: vwl.o plumbing.o util.o vwl-ipc-unstable-v1-protocol.o
-	$(CC) vwl.o plumbing.o util.o vwl-ipc-unstable-v1-protocol.o $(DWLCFLAGS) $(LDFLAGS) $(LDLIBS) -o $@
+vwl: vwl.o plumbing.o util.o ipc.o
+	$(CC) vwl.o plumbing.o util.o ipc.o $(DWLCFLAGS) $(LDFLAGS) $(LDLIBS) -o $@
 vwl.o: vwl.c vwl.h client.h config.h config.mk cursor-shape-v1-protocol.h \
 	pointer-constraints-unstable-v1-protocol.h wlr-layer-shell-unstable-v1-protocol.h \
-	wlr-output-power-management-unstable-v1-protocol.h xdg-shell-protocol.h \
-	vwl-ipc-unstable-v1-protocol.h
-plumbing.o: plumbing.c vwl.h util.h config.h
+	wlr-output-power-management-unstable-v1-protocol.h xdg-shell-protocol.h ipc.h
+plumbing.o: plumbing.c vwl.h ipc.h util.h config.h
+ipc.o: ipc.c vwl.h ipc.h util.h
 util.o: util.c util.h
-vwl-ipc-unstable-v1-protocol.o: vwl-ipc-unstable-v1-protocol.c vwl-ipc-unstable-v1-protocol.h
+
+vwlctl: vwlctl.o util.o
+	$(CC) vwlctl.o util.o $(LDFLAGS) -o $@
+vwlctl.o: vwlctl.c ipc.h util.h
+	$(CC) $(CPPFLAGS) $(TOOLCFLAGS) -o $@ -c $<
 
 # wayland-scanner is a tool which generates C headers and rigging for Wayland
 # protocols, which are specified in XML. wlroots requires you to rig these up
@@ -49,12 +54,6 @@ wlr-output-power-management-unstable-v1-protocol.h:
 xdg-shell-protocol.h:
 	$(WAYLAND_SCANNER) server-header \
 		$(WAYLAND_PROTOCOLS)/stable/xdg-shell/xdg-shell.xml $@
-vwl-ipc-unstable-v1-protocol.h:
-	$(WAYLAND_SCANNER) server-header \
-		protocols/vwl-ipc-unstable-v1.xml $@
-vwl-ipc-unstable-v1-protocol.c:
-	$(WAYLAND_SCANNER) private-code \
-		protocols/vwl-ipc-unstable-v1.xml $@
 
 config.h:
 	cp config.def.h $@
@@ -66,29 +65,33 @@ update-loc:
 		TOTAL=$$(find . -name "*.c" -o -name "*.h" | grep -v -E "protocol|config\.h" | xargs wc -l | tail -1 | awk '{print $$1}'); \
 		VWL=$$(wc -l < vwl.c); \
 	fi; \
-	sed -i "s/^LOC: .*/LOC: $$TOTAL total, $$VWL vwl.c/" README.md
+	sed -i 's/^`LOC: .*`$$/`LOC: '"$$TOTAL"' total, '"$$VWL"' vwl.c`/' README.md
 
 clean:
-	rm -f vwl *.o *-protocol.h *-protocol.c
+	rm -f vwl vwlctl *.o *-protocol.h *-protocol.c
 
 dist: clean
 	mkdir -p vwl-$(VERSION)
 	cp -R LICENSE* Makefile CHANGELOG.md README.md client.h config.def.h \
-		config.mk protocols vwl.c util.c util.h vwl.desktop VWL_FEATURES.md \
+		config.mk docs ipc.c ipc.h protocols vwl.c vwl.h vwlctl.c util.c util.h vwl.desktop VWL_FEATURES.md \
 		vwl-$(VERSION)
 	tar -caf vwl-$(VERSION).tar.gz vwl-$(VERSION)
 	rm -rf vwl-$(VERSION)
 
-install: vwl
+install: vwl vwlctl
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
 	rm -f $(DESTDIR)$(PREFIX)/bin/vwl
 	cp -f vwl $(DESTDIR)$(PREFIX)/bin
 	chmod 755 $(DESTDIR)$(PREFIX)/bin/vwl
+	rm -f $(DESTDIR)$(PREFIX)/bin/vwlctl
+	cp -f vwlctl $(DESTDIR)$(PREFIX)/bin
+	chmod 755 $(DESTDIR)$(PREFIX)/bin/vwlctl
 	mkdir -p $(DESTDIR)$(DATADIR)/wayland-sessions
 	cp -f vwl.desktop $(DESTDIR)$(DATADIR)/wayland-sessions/vwl.desktop
 	chmod 644 $(DESTDIR)$(DATADIR)/wayland-sessions/vwl.desktop
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/vwl \
+		$(DESTDIR)$(PREFIX)/bin/vwlctl \
 		$(DESTDIR)$(DATADIR)/wayland-sessions/vwl.desktop
 
 .SUFFIXES: .c .o

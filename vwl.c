@@ -85,11 +85,8 @@
 #endif
 
 #include "vwl.h"
+#include "ipc.h"
 #include "util.h"
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wshadow"
-#include "vwl-ipc-unstable-v1-protocol.h"
-#pragma GCC diagnostic pop
 
 #if DEFAULT_WORKSPACE_ID >= WORKSPACE_COUNT
 #error "DEFAULT_WORKSPACE_ID must be less than WORKSPACE_COUNT"
@@ -195,7 +192,7 @@ Monitor *xytomon(double x, double y);
 void xytonode(double x, double y, struct wlr_surface **psurface,
 		Client **pc, LayerSurface **pl, double *nx, double *ny);
 void zoom(const Arg *arg);
-static Workspace *wsbyid(unsigned int id);
+Workspace *wsbyid(unsigned int id);
 static Workspace *wsfindfree(void);
 static VirtualOutput *createvout(Monitor *m, const char *name);
 static void destroyvout(VirtualOutput *vout);
@@ -204,7 +201,7 @@ static void wsactivate(VirtualOutput *vout, Workspace *ws, int focus_change);
 static void wsattach(VirtualOutput *vout, Workspace *ws);
 static Workspace *wsfirst(VirtualOutput *vout);
 static VirtualOutput *firstvout(Monitor *m);
-static VirtualOutput *findvoutbyname(Monitor *m, const char *name);
+VirtualOutput *findvoutbyname(Monitor *m, const char *name);
 static void wsmoveto(Workspace *ws, VirtualOutput *vout);
 VirtualOutput *voutat(Monitor *m, double lx, double ly);
 void arrangevout(Monitor *m, const struct wlr_box *usable_area);
@@ -790,11 +787,7 @@ cleanupmon(struct wl_listener *listener, void *data)
 {
 	Monitor *m = wl_container_of(listener, m, destroy);
 	LayerSurface *l, *tmp;
-	IPCOutput *ipc_output, *ipc_output_tmp;
 	size_t i;
-
-	wl_list_for_each_safe(ipc_output, ipc_output_tmp, &m->ipc_outputs, link)
-		wl_resource_destroy(ipc_output->resource);
 
 	/* m->layers[i] are intentionally not unlinked */
 	for (i = 0; i < LENGTH(m->layers); i++) {
@@ -935,7 +928,6 @@ createmon(struct wl_listener *listener, void *data)
 	m = wlr_output->data = ecalloc(1, sizeof(*m));
 	m->wlr_output = wlr_output;
 	wl_list_init(&m->vouts);
-	wl_list_init(&m->ipc_outputs);
 
 	for (i = 0; i < LENGTH(m->layers); i++)
 		wl_list_init(&m->layers[i]);
@@ -1891,6 +1883,7 @@ run(char *startup_cmd)
 	if (!socket)
 		die("startup: display_add_socket_auto");
 	setenv("WAYLAND_DISPLAY", socket, 1);
+	ipc_init();
 
 	/* Start the backend. This will enumerate outputs and inputs, become the DRM
 	 * master, etc */
@@ -2278,8 +2271,6 @@ setup(void)
 	output_mgr = wlr_output_manager_v1_create(dpy);
 	wl_signal_add(&output_mgr->events.apply, &output_mgr_apply);
 	wl_signal_add(&output_mgr->events.test, &output_mgr_test);
-
-	wl_global_create(dpy, &zvwl_ipc_manager_v1_interface, 1, NULL, ipc_manager_bind);
 
 	/* Make sure XWayland clients don't connect to the parent X server,
 	 * e.g when running in the x11 backend or the wayland backend and the
@@ -2819,7 +2810,7 @@ zoom(const Arg *arg)
 	arrange(selmon);
 }
 
-static Workspace *
+Workspace *
 wsbyid(unsigned int id)
 {
 	return id < WORKSPACE_COUNT ? &workspaces[id] : NULL;
@@ -2836,7 +2827,39 @@ firstvout(Monitor *m)
 	return vout;
 }
 
-static VirtualOutput *
+Monitor *
+monitorbyname(const char *name)
+{
+	Monitor *m;
+
+	if (!name)
+		return NULL;
+
+	wl_list_for_each(m, &mons, link) {
+		if (m->wlr_output && !strcmp(m->wlr_output->name, name))
+			return m;
+	}
+
+	return NULL;
+}
+
+VirtualOutput *
+voutbyid(unsigned int id)
+{
+	Monitor *m;
+	VirtualOutput *vout;
+
+	wl_list_for_each(m, &mons, link) {
+		wl_list_for_each(vout, &m->vouts, link) {
+			if (vout->id == id)
+				return vout;
+		}
+	}
+
+	return NULL;
+}
+
+VirtualOutput *
 findvoutbyname(Monitor *m, const char *name)
 {
 	VirtualOutput *vout;
@@ -2848,6 +2871,55 @@ findvoutbyname(Monitor *m, const char *name)
 		}
 	}
 	return NULL;
+}
+
+int
+ipc_set_workspace_by_id(unsigned int workspace_id)
+{
+	if (!wsbyid(workspace_id))
+		return -1;
+
+	view(&(Arg){.ui = workspace_id});
+	return 0;
+}
+
+int
+ipc_focus_virtual_output(VirtualOutput *vout)
+{
+	if (!vout || !vout->mon)
+		return -1;
+
+	selmon = vout->mon;
+	selmon->focus_vout = vout;
+	selvout = vout;
+	selws = vout->ws;
+	if (vout->ws)
+		wsactivate(vout, vout->ws, 1);
+	focusclient(focustopvout(vout), 1);
+	cursorwarptovout(vout);
+	updateipc();
+	return 0;
+}
+
+int
+ipc_move_workspace_to_vout(Workspace *ws, VirtualOutput *vout)
+{
+	if (!ws || !vout || !vout->mon)
+		return -1;
+
+	if (ws->vout != vout)
+		wsmoveto(ws, vout);
+
+	selmon = vout->mon;
+	selmon->focus_vout = vout;
+	selvout = vout;
+	selws = ws;
+	if (vout->ws != ws)
+		wsactivate(vout, ws, 1);
+	focusclient(focustopvout(vout), 1);
+	cursorwarptovout(vout);
+	updateipc();
+	return 0;
 }
 
 VirtualOutput *
