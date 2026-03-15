@@ -3,7 +3,7 @@
 wlroots-based Wayland compositor with virtual outputs and physical cursor continuity.
 Originally forked from dwl.
 
-`LOC: 6004 total, 2832 vwl.c`
+`LOC: 6010 total, 2832 vwl.c`
 
 ## Features
 
@@ -46,6 +46,20 @@ make
 
 ```sh
 ./vwl
+```
+
+## IPC
+
+Shell-facing IPC over a Unix socket.
+
+- socket: `$XDG_RUNTIME_DIR/vwl.sock`
+- client: `vwlctl`
+- docs: `docs/ipc.md`, `docs/waybar-howto.md`
+
+```sh
+vwlctl get-state
+vwlctl subscribe
+vwlctl set-workspace 3
 ```
 
 ## Dependencies
@@ -162,4 +176,3 @@ static const char *screenshotclipboardcmd[] = { "sh", "-c",
 ## Status
 
 Work in progress, used daily by the dev.
-
