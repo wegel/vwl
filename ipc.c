@@ -52,8 +52,7 @@ void tabbed(Monitor *m);
 static const char *
 skip_ws(const char *p)
 {
-	while (p && *p && isspace((unsigned char)*p))
-		p++;
+	while (p && *p && isspace((unsigned char)*p)) p++;
 	return p;
 }
 
@@ -189,8 +188,7 @@ json_write_escaped(FILE *fp, const char *value)
 static void
 json_write_box(FILE *fp, const struct wlr_box *box)
 {
-	fprintf(fp, "{\"x\":%d,\"y\":%d,\"width\":%d,\"height\":%d}",
-			box->x, box->y, box->width, box->height);
+	fprintf(fp, "{\"x\":%d,\"y\":%d,\"width\":%d,\"height\":%d}", box->x, box->y, box->width, box->height);
 }
 
 static void
@@ -279,7 +277,13 @@ build_snapshot(void)
 				json_write_escaped(fp, client_get_appid(focused));
 				fprintf(fp, ",\"fullscreen\":%s", focused->isfullscreen ? "true" : "false");
 				fprintf(fp, ",\"floating\":false");
-				fprintf(fp, ",\"tabbed\":%s}", active_vout && active_vout->lt[active_vout->sellt] && active_vout->lt[active_vout->sellt]->arrange == tabbed ? "true" : "false");
+				fprintf(fp, ",\"tabbed\":%s}",
+						active_vout && active_vout->lt[active_vout->sellt] &&
+										active_vout->lt[active_vout->sellt]
+														->arrange ==
+												tabbed
+								? "true"
+								: "false");
 			}
 
 			fputc('}', fp);
@@ -636,8 +640,7 @@ ipc_client_ready(int fd, uint32_t mask, void *data)
 	}
 
 	for (;;) {
-		ssize_t n = read(fd, client->buffer + client->used,
-				sizeof(client->buffer) - client->used - 1);
+		ssize_t n = read(fd, client->buffer + client->used, sizeof(client->buffer) - client->used - 1);
 		if (n < 0) {
 			if (errno == EINTR)
 				continue;
@@ -704,8 +707,7 @@ ipc_listen_ready(int fd, uint32_t mask, void *data)
 		client = ecalloc(1, sizeof(*client));
 		client->fd = client_fd;
 		client->source = wl_event_loop_add_fd(event_loop, client_fd,
-				WL_EVENT_READABLE | WL_EVENT_ERROR | WL_EVENT_HANGUP,
-				ipc_client_ready, client);
+				WL_EVENT_READABLE | WL_EVENT_ERROR | WL_EVENT_HANGUP, ipc_client_ready, client);
 		if (!client->source) {
 			close(client_fd);
 			free(client);
@@ -729,7 +731,8 @@ ipc_init(void)
 		die("ipc: XDG_RUNTIME_DIR must be set");
 
 	wl_list_init(&ipc_server.clients);
-	if (snprintf(ipc_server.path, sizeof(ipc_server.path), "%s/vwl.sock", runtime_dir) >= (int)sizeof(ipc_server.path))
+	if (snprintf(ipc_server.path, sizeof(ipc_server.path), "%s/vwl.sock", runtime_dir) >=
+			(int)sizeof(ipc_server.path))
 		die("ipc: socket path too long");
 
 	ipc_server.listen_fd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -760,8 +763,7 @@ ipc_finish(void)
 {
 	IPCClient *client, *tmp;
 
-	wl_list_for_each_safe(client, tmp, &ipc_server.clients, link)
-		ipc_client_destroy(client);
+	wl_list_for_each_safe(client, tmp, &ipc_server.clients, link) ipc_client_destroy(client);
 
 	if (ipc_server.listen_source) {
 		wl_event_source_remove(ipc_server.listen_source);

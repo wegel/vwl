@@ -271,8 +271,7 @@ static inline void
 client_notify_enter(struct wlr_surface *s, struct wlr_keyboard *kb)
 {
 	if (kb)
-		wlr_seat_keyboard_notify_enter(seat, s, kb->keycodes,
-				kb->num_keycodes, &kb->modifiers);
+		wlr_seat_keyboard_notify_enter(seat, s, kb->keycodes, kb->num_keycodes, &kb->modifiers);
 	else
 		wlr_seat_keyboard_notify_enter(seat, s, NULL, 0, NULL);
 }
@@ -293,8 +292,7 @@ static inline void
 client_set_border_color(Client *c, const float color[static 4])
 {
 	int i;
-	for (i = 0; i < 4; i++)
-		wlr_scene_rect_set_color(c->border[i], color);
+	for (i = 0; i < 4; i++) wlr_scene_rect_set_color(c->border[i], color);
 }
 
 static inline void
@@ -321,12 +319,13 @@ client_set_size(Client *c, uint32_t width, uint32_t height)
 {
 #ifdef XWAYLAND
 	if (client_is_x11(c)) {
-		wlr_xwayland_surface_configure(c->surface.xwayland,
-				c->geom.x + c->bw, c->geom.y + c->bw, width, height);
+		wlr_xwayland_surface_configure(
+				c->surface.xwayland, c->geom.x + c->bw, c->geom.y + c->bw, width, height);
 		return 0;
 	}
 #endif
-	if ((int32_t)width == c->surface.xdg->toplevel->current.width && (int32_t)height == c->surface.xdg->toplevel->current.height)
+	if ((int32_t)width == c->surface.xdg->toplevel->current.width &&
+			(int32_t)height == c->surface.xdg->toplevel->current.height)
 		return 0;
 	return wlr_xdg_toplevel_set_size(c->surface.xdg->toplevel, (int32_t)width, (int32_t)height);
 }
@@ -336,12 +335,12 @@ client_set_tiled(Client *c, uint32_t edges)
 {
 #ifdef XWAYLAND
 	if (client_is_x11(c)) {
-		wlr_xwayland_surface_set_maximized(c->surface.xwayland,
-				edges != WLR_EDGE_NONE, edges != WLR_EDGE_NONE);
+		wlr_xwayland_surface_set_maximized(c->surface.xwayland, edges != WLR_EDGE_NONE, edges != WLR_EDGE_NONE);
 		return;
 	}
 #endif
-	if (wl_resource_get_version(c->surface.xdg->toplevel->resource) >= XDG_TOPLEVEL_STATE_TILED_RIGHT_SINCE_VERSION) {
+	if (wl_resource_get_version(c->surface.xdg->toplevel->resource) >=
+			XDG_TOPLEVEL_STATE_TILED_RIGHT_SINCE_VERSION) {
 		wlr_xdg_toplevel_set_tiled(c->surface.xdg->toplevel, edges);
 	} else {
 		wlr_xdg_toplevel_set_maximized(c->surface.xdg->toplevel, edges != WLR_EDGE_NONE);
@@ -363,7 +362,8 @@ static inline int
 client_wants_focus(Client *c)
 {
 #ifdef XWAYLAND
-	return client_is_unmanaged(c) && wlr_xwayland_surface_override_redirect_wants_focus(c->surface.xwayland) && wlr_xwayland_surface_icccm_input_model(c->surface.xwayland) != WLR_ICCCM_INPUT_MODEL_NONE;
+	return client_is_unmanaged(c) && wlr_xwayland_surface_override_redirect_wants_focus(c->surface.xwayland) &&
+	       wlr_xwayland_surface_icccm_input_model(c->surface.xwayland) != WLR_ICCCM_INPUT_MODEL_NONE;
 #endif
 	return 0;
 }

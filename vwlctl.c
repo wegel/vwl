@@ -16,15 +16,15 @@
 static void
 usage(FILE *fp)
 {
-	fprintf(fp,
-			"usage: vwlctl [--socket PATH] <command> [args]\n"
-			"\n"
-			"commands:\n"
-			"  get-state\n"
-			"  subscribe\n"
-			"  set-workspace WORKSPACE_ID\n"
-			"  set-vout-focus (--vout-id ID | --output NAME --vout NAME)\n"
-			"  move-workspace-to-vout WORKSPACE_ID (--vout-id ID | --output NAME --vout NAME)\n");
+	fprintf(fp, "usage: vwlctl [--socket PATH] <command> [args]\n"
+		    "\n"
+		    "commands:\n"
+		    "  get-state\n"
+		    "  subscribe\n"
+		    "  set-workspace WORKSPACE_ID\n"
+		    "  set-vout-focus (--vout-id ID | --output NAME --vout NAME)\n"
+		    "  move-workspace-to-vout WORKSPACE_ID (--vout-id ID | --output NAME --vout "
+		    "NAME)\n");
 }
 
 static void
@@ -234,7 +234,8 @@ main(int argc, char *argv[])
 		}
 
 		fprintf(request_fp, "{\"id\":1,\"type\":");
-		json_write_escaped(request_fp, !strcmp(cmd, "set-vout-focus") ? "set_vout_focus" : "move_workspace_to_vout");
+		json_write_escaped(request_fp,
+				!strcmp(cmd, "set-vout-focus") ? "set_vout_focus" : "move_workspace_to_vout");
 		needs_comma = 1;
 		if (workspace_id)
 			fprintf(request_fp, ",\"workspace_id\":%s", workspace_id);

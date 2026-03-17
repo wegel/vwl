@@ -4,7 +4,7 @@ UseTab: Always
 TabWidth: 8
 IndentWidth: 8
 ContinuationIndentWidth: 16
-ColumnLimit: 0
+ColumnLimit: 120
 BreakBeforeBraces: Custom
 BraceWrapping:
   AfterControlStatement: Never

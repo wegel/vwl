@@ -35,24 +35,11 @@
 	} while (0)
 
 /* enums */
-enum { CurNormal,
-	CurPressed }; /* cursor */
-enum { XDGShell,
-	LayerShell,
-	X11 }; /* client types */
-enum { LyrBg,
-	LyrBottom,
-	LyrTile,
-	LyrTop,
-	LyrFS,
-	LyrOverlay,
-	LyrBlock,
-	NUM_LAYERS }; /* scene layers */
-enum { FS_NONE,
-	FS_VIRTUAL,
-	FS_MONITOR }; /* fullscreen modes */
-enum TabHdrPos { TABHDR_TOP,
-	TABHDR_BOTTOM };
+enum { CurNormal, CurPressed };	    /* cursor */
+enum { XDGShell, LayerShell, X11 }; /* client types */
+enum { LyrBg, LyrBottom, LyrTile, LyrTop, LyrFS, LyrOverlay, LyrBlock, NUM_LAYERS }; /* scene layers */
+enum { FS_NONE, FS_VIRTUAL, FS_MONITOR }; /* fullscreen modes */
+enum TabHdrPos { TABHDR_TOP, TABHDR_BOTTOM };
 
 typedef struct {
 	const char *pattern;
@@ -387,8 +374,8 @@ void arrangelayer(Monitor *m, struct wl_list *list, struct wlr_box *usable_area,
 /* Functions needed by plumbing.c from vwl.c */
 void cursorsync(void);
 Monitor *xytomon(double x, double y);
-void motionnotify(uint32_t time, struct wlr_input_device *device, double dx,
-		double dy, double dx_unaccel, double dy_unaccel);
+void motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double dy, double dx_unaccel,
+		double dy_unaccel);
 void focusclient(Client *c, int lift);
 Client *focustop(Monitor *m);
 void arrangelayers(Monitor *m);
