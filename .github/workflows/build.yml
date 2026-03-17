@@ -5,6 +5,25 @@ on:
   pull_request:
 
 jobs:
+  format:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:sid
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install formatter
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            clang-format \
+            make
+
+      - name: Check formatting
+        run: make format-check
+
   build:
     runs-on: ubuntu-latest
     container:
