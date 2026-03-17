@@ -14,28 +14,45 @@
 #endif
 
 /* macros */
-#define MAX(A, B)               ((A) > (B) ? (A) : (B))
-#define MIN(A, B)               ((A) < (B) ? (A) : (B))
-#define CLEANMASK(mask)         (mask & ~WLR_MODIFIER_CAPS)
-#define CLIENT_VOUT(C)          ((C)->ws ? (C)->ws->vout : NULL)
-#define CLIENT_MON(C)           (CLIENT_VOUT(C) ? CLIENT_VOUT(C)->mon : NULL)
-#define MON_FOCUS_WS(M)         (focusvout(M) ? focusvout(M)->ws : NULL)
-#define VISIBLEON(C, M)         ((M) && (C)->ws && CLIENT_MON(C) == (M) \
-                                && CLIENT_VOUT(C) && CLIENT_VOUT(C)->ws == (C)->ws)
-#define LENGTH(X)               (sizeof X / sizeof X[0])
-#define END(A)                  ((A) + LENGTH(A))
-#define WORKSPACE_COUNT         256
-#define WORKSPACE_NAME_LEN      32
-#define DEFAULT_WORKSPACE_ID    1
-#define LISTEN(E, L, H)         wl_signal_add((E), ((L)->notify = (H), (L)))
-#define LISTEN_STATIC(E, H)     do { struct wl_listener *_l = ecalloc(1, sizeof(*_l)); _l->notify = (H); wl_signal_add((E), _l); } while (0)
+#define MAX(A, B) ((A) > (B) ? (A) : (B))
+#define MIN(A, B) ((A) < (B) ? (A) : (B))
+#define CLEANMASK(mask) (mask & ~WLR_MODIFIER_CAPS)
+#define CLIENT_VOUT(C) ((C)->ws ? (C)->ws->vout : NULL)
+#define CLIENT_MON(C) (CLIENT_VOUT(C) ? CLIENT_VOUT(C)->mon : NULL)
+#define MON_FOCUS_WS(M) (focusvout(M) ? focusvout(M)->ws : NULL)
+#define VISIBLEON(C, M) ((M) && (C)->ws && CLIENT_MON(C) == (M) && CLIENT_VOUT(C) && CLIENT_VOUT(C)->ws == (C)->ws)
+#define LENGTH(X) (sizeof X / sizeof X[0])
+#define END(A) ((A) + LENGTH(A))
+#define WORKSPACE_COUNT 256
+#define WORKSPACE_NAME_LEN 32
+#define DEFAULT_WORKSPACE_ID 1
+#define LISTEN(E, L, H) wl_signal_add((E), ((L)->notify = (H), (L)))
+#define LISTEN_STATIC(E, H)                                       \
+	do {                                                      \
+		struct wl_listener *_l = ecalloc(1, sizeof(*_l)); \
+		_l->notify = (H);                                 \
+		wl_signal_add((E), _l);                           \
+	} while (0)
 
 /* enums */
-enum { CurNormal, CurPressed }; /* cursor */
-enum { XDGShell, LayerShell, X11 }; /* client types */
-enum { LyrBg, LyrBottom, LyrTile, LyrTop, LyrFS, LyrOverlay, LyrBlock, NUM_LAYERS }; /* scene layers */
-enum { FS_NONE, FS_VIRTUAL, FS_MONITOR }; /* fullscreen modes */
-enum TabHdrPos { TABHDR_TOP, TABHDR_BOTTOM };
+enum { CurNormal,
+	CurPressed }; /* cursor */
+enum { XDGShell,
+	LayerShell,
+	X11 }; /* client types */
+enum { LyrBg,
+	LyrBottom,
+	LyrTile,
+	LyrTop,
+	LyrFS,
+	LyrOverlay,
+	LyrBlock,
+	NUM_LAYERS }; /* scene layers */
+enum { FS_NONE,
+	FS_VIRTUAL,
+	FS_MONITOR }; /* fullscreen modes */
+enum TabHdrPos { TABHDR_TOP,
+	TABHDR_BOTTOM };
 
 typedef struct {
 	const char *pattern;
@@ -85,8 +102,8 @@ struct Client {
 	struct wlr_scene_tree *scene_surface;
 	struct wl_list link;
 	struct wl_list flink;
-	struct wlr_box geom; /* layout-relative, includes border */
-	struct wlr_box prev; /* layout-relative, includes border */
+	struct wlr_box geom;   /* layout-relative, includes border */
+	struct wlr_box prev;   /* layout-relative, includes border */
 	struct wlr_box bounds; /* only width and height are used */
 	union {
 		struct wlr_xdg_surface *xdg;
@@ -128,7 +145,7 @@ struct KeyboardGroup {
 
 	int nsyms;
 	const xkb_keysym_t *keysyms; /* invalid if nsyms == 0 */
-	uint32_t mods; /* invalid if nsyms == 0 */
+	uint32_t mods;		     /* invalid if nsyms == 0 */
 	struct wl_event_source *key_repeat_source;
 
 	struct wl_listener modifiers;
@@ -184,8 +201,8 @@ struct VirtualOutput {
 	struct wl_list workspaces;
 	Workspace *ws;
 	struct wlr_scene_tree *tabhdr;
-	struct wlr_box layout_geom;       /* layout-relative geometry */
-	struct wlr_box rule_geom;         /* rule geometry in physical pixels */
+	struct wlr_box layout_geom; /* layout-relative geometry */
+	struct wlr_box rule_geom;   /* rule geometry in physical pixels */
 	float mfact;
 	int nmaster;
 	const Layout *lt[2];
@@ -217,8 +234,8 @@ struct Monitor {
 	struct wlr_session_lock_surface_v1 *lock_surface;
 	struct wlr_box monitor_area; /* monitor area, layout-relative */
 	struct wlr_box window_area;  /* window area, layout-relative */
-	struct wl_list layers[4]; /* LayerSurface.link */
-	struct wl_list vouts; /* VirtualOutput.link */
+	struct wl_list layers[4];    /* LayerSurface.link */
+	struct wl_list vouts;	     /* VirtualOutput.link */
 	VirtualOutput *focus_vout;
 	int gamma_lut_changed;
 	int asleep;

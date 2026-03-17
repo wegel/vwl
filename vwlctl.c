@@ -17,14 +17,14 @@ static void
 usage(FILE *fp)
 {
 	fprintf(fp,
-		"usage: vwlctl [--socket PATH] <command> [args]\n"
-		"\n"
-		"commands:\n"
-		"  get-state\n"
-		"  subscribe\n"
-		"  set-workspace WORKSPACE_ID\n"
-		"  set-vout-focus (--vout-id ID | --output NAME --vout NAME)\n"
-		"  move-workspace-to-vout WORKSPACE_ID (--vout-id ID | --output NAME --vout NAME)\n");
+			"usage: vwlctl [--socket PATH] <command> [args]\n"
+			"\n"
+			"commands:\n"
+			"  get-state\n"
+			"  subscribe\n"
+			"  set-workspace WORKSPACE_ID\n"
+			"  set-vout-focus (--vout-id ID | --output NAME --vout NAME)\n"
+			"  move-workspace-to-vout WORKSPACE_ID (--vout-id ID | --output NAME --vout NAME)\n");
 }
 
 static void

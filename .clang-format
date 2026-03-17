@@ -1,0 +1,46 @@
+---
+BasedOnStyle: LLVM
+UseTab: Always
+TabWidth: 8
+IndentWidth: 8
+ContinuationIndentWidth: 16
+ColumnLimit: 0
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterControlStatement: Never
+  AfterEnum: false
+  AfterFunction: true
+  AfterStruct: false
+  AfterUnion: false
+  BeforeElse: false
+  IndentBraces: false
+PointerAlignment: Right
+AlignAfterOpenBracket: DontAlign
+BreakBeforeBinaryOperators: None
+BreakAfterReturnType: TopLevelDefinitions
+IndentCaseLabels: false
+AllowShortEnumsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: true
+AllowShortCaseLabelsOnASingleLine: false
+Cpp11BracedListStyle: true
+SpaceBeforeParens: Custom
+SpaceBeforeParensOptions:
+  AfterControlStatements: true
+  AfterForeachMacros: false
+  AfterFunctionDefinitionName: false
+  AfterFunctionDeclarationName: false
+  AfterIfMacros: true
+  AfterNot: false
+  BeforeNonEmptyParentheses: false
+SortIncludes: Never
+IncludeBlocks: Preserve
+ReflowComments: false
+AlignEscapedNewlines: Left
+SpacesInContainerLiterals: false
+ForEachMacros:
+  - wl_list_for_each
+  - wl_list_for_each_reverse
+  - wl_list_for_each_safe
+...

@@ -316,8 +316,7 @@ applyrules(Client *c)
 	title = client_get_title(c);
 
 	for (r = rules; r < END(rules); r++) {
-		if ((!r->title || strstr(title, r->title))
-				&& (!r->id || strstr(appid, r->id))) {
+		if ((!r->title || strstr(title, r->title)) && (!r->id || strstr(appid, r->id))) {
 			if (r->workspace < WORKSPACE_COUNT)
 				workspace_id = r->workspace;
 			i = 0;
@@ -396,9 +395,9 @@ tabhdr_text_buffer_end(struct wlr_buffer *buffer)
 }
 
 static const struct wlr_buffer_impl tabhdr_text_buffer_impl = {
-	.destroy = tabhdr_text_buffer_destroy,
-	.begin_data_ptr_access = tabhdr_text_buffer_begin,
-	.end_data_ptr_access = tabhdr_text_buffer_end,
+		.destroy = tabhdr_text_buffer_destroy,
+		.begin_data_ptr_access = tabhdr_text_buffer_begin,
+		.end_data_ptr_access = tabhdr_text_buffer_end,
 };
 
 static const struct TabFontMetrics *
@@ -658,7 +657,7 @@ tabhdrupdate(Monitor *m, VirtualOutput *vout, struct wlr_box area, Client *activ
 
 	wl_list_for_each(c, &clients, link) {
 		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) ||
-		    client_is_nonvirtual_fullscreen(c))
+				client_is_nonvirtual_fullscreen(c))
 			continue;
 		count++;
 	}
@@ -695,7 +694,7 @@ tabhdrupdate(Monitor *m, VirtualOutput *vout, struct wlr_box area, Client *activ
 		int w;
 
 		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) ||
-		    client_is_nonvirtual_fullscreen(c))
+				client_is_nonvirtual_fullscreen(c))
 			continue;
 		w = base_width + (idx < remainder ? 1 : 0);
 		tabtree = wlr_scene_tree_create(tree);
@@ -1029,10 +1028,10 @@ createmon(struct wl_listener *listener, void *data)
 				new_vout->lt[1] = vr->lt_secondary;
 			new_vout->sellt = 0;
 			new_vout->rule_geom = (struct wlr_box){
-				.x = vr->x,
-				.y = vr->y,
-				.width = vr->width,
-				.height = vr->height,
+					.x = vr->x,
+					.y = vr->y,
+					.width = vr->width,
+					.height = vr->height,
 			};
 			strncpy(new_vout->ltsymbol, new_vout->lt[new_vout->sellt]->symbol, LENGTH(new_vout->ltsymbol));
 			new_vout->ltsymbol[LENGTH(new_vout->ltsymbol) - 1] = '\0';
@@ -1144,11 +1143,11 @@ debugstate(const Arg *arg)
 	wl_list_for_each(m, &mons, link) {
 		fprintf(f, "monitor: %s\n", m->wlr_output->name);
 		fprintf(f, "  monitor_area: x=%d y=%d w=%d h=%d\n",
-			m->monitor_area.x, m->monitor_area.y,
-			m->monitor_area.width, m->monitor_area.height);
+				m->monitor_area.x, m->monitor_area.y,
+				m->monitor_area.width, m->monitor_area.height);
 		fprintf(f, "  window_area: x=%d y=%d w=%d h=%d\n",
-			m->window_area.x, m->window_area.y,
-			m->window_area.width, m->window_area.height);
+				m->window_area.x, m->window_area.y,
+				m->window_area.width, m->window_area.height);
 		fprintf(f, "  focus_vout: %s\n", m->focus_vout ? m->focus_vout->name : "(null)");
 		fprintf(f, "  asleep: %d\n", m->asleep);
 
@@ -1156,19 +1155,19 @@ debugstate(const Arg *arg)
 		wl_list_for_each(vout, &m->vouts, link) {
 			fprintf(f, "    vout: %s (id=%u)\n", vout->name, vout->id);
 			fprintf(f, "      layout_geom: x=%d y=%d w=%d h=%d\n",
-				vout->layout_geom.x, vout->layout_geom.y,
-				vout->layout_geom.width, vout->layout_geom.height);
+					vout->layout_geom.x, vout->layout_geom.y,
+					vout->layout_geom.width, vout->layout_geom.height);
 			fprintf(f, "      active_ws: %s (id=%u)\n",
-				vout->ws ? vout->ws->name : "(null)",
-				vout->ws ? vout->ws->id : 0);
+					vout->ws ? vout->ws->name : "(null)",
+					vout->ws ? vout->ws->id : 0);
 			fprintf(f, "      mfact: %.2f, nmaster: %d, layout: %s\n",
-				vout->mfact, vout->nmaster, vout->ltsymbol);
+					vout->mfact, vout->nmaster, vout->ltsymbol);
 
 			fprintf(f, "      workspaces:\n");
 			wl_list_for_each(ws, &vout->workspaces, link) {
 				fprintf(f, "        ws: %s (id=%u)%s\n",
-					ws->name, ws->id,
-					ws == vout->ws ? " [active]" : "");
+						ws->name, ws->id,
+						ws == vout->ws ? " [active]" : "");
 			}
 		}
 	}
@@ -1183,18 +1182,18 @@ debugstate(const Arg *arg)
 		client_count++;
 		fprintf(f, "client %d: appid=\"%s\" title=\"%s\"\n", client_count, appid, title);
 		fprintf(f, "  type: %s\n",
-			c->type == XDGShell ? "xdg" :
-			c->type == X11 ? "x11" : "unknown");
+				c->type == XDGShell ? "xdg" : c->type == X11 ? "x11"
+									     : "unknown");
 		fprintf(f, "  geom: x=%d y=%d w=%d h=%d\n",
-			c->geom.x, c->geom.y, c->geom.width, c->geom.height);
+				c->geom.x, c->geom.y, c->geom.width, c->geom.height);
 		fprintf(f, "  prev: x=%d y=%d w=%d h=%d\n",
-			c->prev.x, c->prev.y, c->prev.width, c->prev.height);
+				c->prev.x, c->prev.y, c->prev.width, c->prev.height);
 		fprintf(f, "  mon: %s\n", cmon ? cmon->wlr_output->name : "(null)");
 		fprintf(f, "  vout: %s\n", cvout ? cvout->name : "(null)");
 		fprintf(f, "  ws: %s (id=%u)\n",
-			c->ws ? c->ws->name : "(null)", c->ws ? c->ws->id : 0);
+				c->ws ? c->ws->name : "(null)", c->ws ? c->ws->id : 0);
 		fprintf(f, "  isfullscreen: %d (mode=%d), isurgent: %d\n",
-			c->isfullscreen, c->fullscreen_mode, c->isurgent);
+				c->isfullscreen, c->fullscreen_mode, c->isurgent);
 		fprintf(f, "  bw: %u, resize: %u\n", c->bw, c->resize);
 		fprintf(f, "  visible: %d\n", cmon && VISIBLEON(c, cmon));
 		fprintf(f, "  scene_node enabled: %d\n", c->scene->node.enabled);
@@ -1206,8 +1205,8 @@ debugstate(const Arg *arg)
 	wl_list_for_each(c, &fstack, flink) {
 		client_count++;
 		fprintf(f, "%d: appid=\"%s\" title=\"%s\" ws=%u\n",
-			client_count, client_get_appid(c), client_get_title(c),
-			c->ws ? c->ws->id : 0);
+				client_count, client_get_appid(c), client_get_title(c),
+				c->ws ? c->ws->id : 0);
 	}
 
 	fclose(f);
@@ -1268,11 +1267,11 @@ dirtomon(enum wlr_direction dir)
 	if (!wlr_output_layout_get(output_layout, selmon->wlr_output))
 		return selmon;
 	if ((next = wlr_output_layout_adjacent_output(output_layout,
-			dir, selmon->wlr_output, selmon->monitor_area.x, selmon->monitor_area.y)))
+			     dir, selmon->wlr_output, selmon->monitor_area.x, selmon->monitor_area.y)))
 		return next->data;
 	if ((next = wlr_output_layout_farthest_output(output_layout,
-			dir ^ (WLR_DIRECTION_LEFT|WLR_DIRECTION_RIGHT),
-			selmon->wlr_output, selmon->monitor_area.x, selmon->monitor_area.y)))
+			     dir ^ (WLR_DIRECTION_LEFT | WLR_DIRECTION_RIGHT),
+			     selmon->wlr_output, selmon->monitor_area.x, selmon->monitor_area.y)))
 		return next->data;
 	return selmon;
 }
@@ -1281,10 +1280,10 @@ static VirtualOutput *
 voutneighbor(VirtualOutput *from, enum wlr_direction dir)
 {
 	static const enum wlr_direction order[] = {
-		WLR_DIRECTION_LEFT,
-		WLR_DIRECTION_RIGHT,
-		WLR_DIRECTION_UP,
-		WLR_DIRECTION_DOWN,
+			WLR_DIRECTION_LEFT,
+			WLR_DIRECTION_RIGHT,
+			WLR_DIRECTION_UP,
+			WLR_DIRECTION_DOWN,
 	};
 	struct wlr_box ref;
 	double ref_cx, ref_cy;
@@ -1293,7 +1292,8 @@ voutneighbor(VirtualOutput *from, enum wlr_direction dir)
 	if (!from || !from->mon)
 		return NULL;
 	ref = (from->layout_geom.width > 0 && from->layout_geom.height > 0)
-			? from->layout_geom : from->mon->window_area;
+			      ? from->layout_geom
+			      : from->mon->window_area;
 	if (ref.width <= 0 || ref.height <= 0)
 		return NULL;
 	ref_cx = ref.x + ref.width / 2.0;
@@ -1303,7 +1303,8 @@ voutneighbor(VirtualOutput *from, enum wlr_direction dir)
 		enum wlr_direction want = order[i];
 		VirtualOutput *best = NULL, *vout;
 		double best_metric = (want == WLR_DIRECTION_LEFT || want == WLR_DIRECTION_UP)
-				? -DBL_MAX : DBL_MAX;
+						     ? -DBL_MAX
+						     : DBL_MAX;
 
 		if (dir && !(dir & want))
 			continue;
@@ -1315,7 +1316,8 @@ voutneighbor(VirtualOutput *from, enum wlr_direction dir)
 			if (vout == from)
 				continue;
 			box = (vout->layout_geom.width > 0 && vout->layout_geom.height > 0)
-					? vout->layout_geom : vout->mon->window_area;
+					      ? vout->layout_geom
+					      : vout->mon->window_area;
 			if (box.width <= 0 || box.height <= 0)
 				continue;
 			cx = box.x + box.width / 2.0;
@@ -1370,7 +1372,8 @@ cursorwarptovout(VirtualOutput *vout)
 	if (!cursor || !vout || !vout->mon)
 		return;
 	area = (vout->layout_geom.width > 0 && vout->layout_geom.height > 0)
-			? vout->layout_geom : vout->mon->window_area;
+			       ? vout->layout_geom
+			       : vout->mon->window_area;
 	if (area.width <= 0 || area.height <= 0)
 		return;
 	cx = area.x + area.width / 2.0;
@@ -1397,8 +1400,8 @@ focusclient(Client *c, int lift)
 		VirtualOutput *vout = CLIENT_VOUT(c);
 		wlr_scene_node_raise_to_top(&c->scene->node);
 		if (vout && vout->tabhdr && vout->lt[vout->sellt] &&
-			vout->lt[vout->sellt]->arrange == tabbed &&
-			client_is_virtual_fullscreen(c))
+				vout->lt[vout->sellt]->arrange == tabbed &&
+				client_is_virtual_fullscreen(c))
 			wlr_scene_node_raise_to_top(&vout->tabhdr->node);
 	}
 
@@ -1423,12 +1426,12 @@ focusclient(Client *c, int lift)
 			selws = selvout->ws;
 		if (selmon && selvout)
 			selmon->focus_vout = selvout;
-		if (selvout && selvout->lt[selvout->sellt]
-				&& selvout->lt[selvout->sellt]->arrange == tabbed) {
+		if (selvout && selvout->lt[selvout->sellt] && selvout->lt[selvout->sellt]->arrange == tabbed) {
 			struct wlr_box area;
 			tabbed_mon = selvout->mon;
 			area = (selvout->layout_geom.width && selvout->layout_geom.height)
-				? selvout->layout_geom : selvout->mon->window_area;
+					       ? selvout->layout_geom
+					       : selvout->mon->window_area;
 			tabhdrupdate(selvout->mon, selvout, area, c);
 		}
 		c->isurgent = 0;
@@ -1444,13 +1447,11 @@ focusclient(Client *c, int lift)
 		/* If an overlay is focused, don't focus or activate the client,
 		 * but only update its position in fstack to render its border with focuscolor
 		 * and focus it after the overlay is closed. */
-		if (old_client_type == LayerShell && wlr_scene_node_coords(
-					&old_l->scene->node, &unused_lx, &unused_ly)
-				&& old_l->layer_surface->current.layer >= ZWLR_LAYER_SHELL_V1_LAYER_TOP) {
+		if (old_client_type == LayerShell && wlr_scene_node_coords(&old_l->scene->node, &unused_lx, &unused_ly) && old_l->layer_surface->current.layer >= ZWLR_LAYER_SHELL_V1_LAYER_TOP) {
 			return;
 		} else if (old_c && old_c == exclusive_focus && client_wants_focus(old_c)) {
 			return;
-		/* Don't deactivate old client if the new one wants focus, as this causes issues with winecfg
+			/* Don't deactivate old client if the new one wants focus, as this causes issues with winecfg
 		 * and probably other clients */
 		} else if (old_c && !client_is_unmanaged(old_c) && (!c || !client_wants_focus(c))) {
 			client_set_border_color(old_c, bordercolor);
@@ -1572,8 +1573,7 @@ tabmove(const Arg *arg)
 	if (dir > 0) {
 		for (link = sel->link.next; link != &clients; link = link->next) {
 			Client *c = wl_container_of(link, sel, link);
-			if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, selmon)
-					|| client_is_nonvirtual_fullscreen(c))
+			if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, selmon) || client_is_nonvirtual_fullscreen(c))
 				continue;
 			target = c;
 			break;
@@ -1585,8 +1585,7 @@ tabmove(const Arg *arg)
 	} else {
 		for (link = sel->link.prev; link != &clients; link = link->prev) {
 			Client *c = wl_container_of(link, sel, link);
-			if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, selmon)
-					|| client_is_nonvirtual_fullscreen(c))
+			if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, selmon) || client_is_nonvirtual_fullscreen(c))
 				continue;
 			target = c;
 			break;
@@ -1600,7 +1599,8 @@ tabmove(const Arg *arg)
 	{
 		struct wlr_box area;
 		area = (vout->layout_geom.width && vout->layout_geom.height)
-			? vout->layout_geom : selmon->window_area;
+				       ? vout->layout_geom
+				       : selmon->window_area;
 		tabhdrupdate(selmon, vout, area, sel);
 	}
 	focusclient(sel, 1);
@@ -1649,8 +1649,8 @@ mapnotify(struct wl_listener *listener, void *data)
 	/* Enabled later by a call to arrange() */
 	wlr_scene_node_set_enabled(&c->scene->node, client_is_unmanaged(c));
 	c->scene_surface = c->type == XDGShell
-			? wlr_scene_xdg_surface_create(c->scene, c->surface.xdg)
-			: wlr_scene_subsurface_tree_create(c->scene, client_surface(c));
+					   ? wlr_scene_xdg_surface_create(c->scene, c->surface.xdg)
+					   : wlr_scene_subsurface_tree_create(c->scene, client_surface(c));
 	c->scene->node.data = c->scene_surface->node.data = c;
 
 	client_get_geometry(c, &c->geom);
@@ -1723,9 +1723,7 @@ maximizenotify(struct wl_listener *listener, void *data)
 	 * protocol version
 	 * wlr_xdg_surface_schedule_configure() is used to send an empty reply. */
 	Client *c = wl_container_of(listener, c, maximize);
-	if (c->surface.xdg->initialized
-			&& wl_resource_get_version(c->surface.xdg->toplevel->resource)
-					< XDG_TOPLEVEL_WM_CAPABILITIES_SINCE_VERSION)
+	if (c->surface.xdg->initialized && wl_resource_get_version(c->surface.xdg->toplevel->resource) < XDG_TOPLEVEL_WM_CAPABILITIES_SINCE_VERSION)
 		wlr_xdg_surface_schedule_configure(c->surface.xdg);
 }
 
@@ -1754,9 +1752,7 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 	/* Find the client under the pointer and send the event along. */
 	xytonode(cursor->x, cursor->y, &surface, &c, NULL, &sx, &sy);
 
-	if (cursor_mode == CurPressed && !seat->drag
-			&& surface != seat->pointer_state.focused_surface
-			&& toplevel_from_wlr_surface(seat->pointer_state.focused_surface, &w, &l) >= 0) {
+	if (cursor_mode == CurPressed && !seat->drag && surface != seat->pointer_state.focused_surface && toplevel_from_wlr_surface(seat->pointer_state.focused_surface, &w, &l) >= 0) {
 		c = w;
 		surface = seat->pointer_state.focused_surface;
 		sx = cursor->x - (l ? l->scene->node.x : w->geom.x);
@@ -1770,12 +1766,7 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 				dx, dy, dx_unaccel, dy_unaccel);
 		cursorinteg(dx, dy);
 
-		if (enable_physical_cursor_gap_jumps
-				&& prev_mon
-				&& cursor_mode == CurNormal
-				&& !seat->drag
-				&& (!active_constraint || active_constraint->type != WLR_POINTER_CONSTRAINT_V1_LOCKED)
-				&& cursorgap(prev_mon, prev_mm_x, prev_mm_y)) {
+		if (enable_physical_cursor_gap_jumps && prev_mon && cursor_mode == CurNormal && !seat->drag && (!active_constraint || active_constraint->type != WLR_POINTER_CONSTRAINT_V1_LOCKED) && cursorgap(prev_mon, prev_mm_x, prev_mm_y)) {
 			return;
 		}
 
@@ -1788,7 +1779,7 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 				sx = cursor->x - c->geom.x - c->bw;
 				sy = cursor->y - c->geom.y - c->bw;
 				if (wlr_region_confine(&active_constraint->region, sx, sy,
-						sx + dx, sy + dy, &sx_confined, &sy_confined)) {
+						    sx + dx, sy + dy, &sx_confined, &sy_confined)) {
 					dx = sx_confined - sx;
 					dy = sy_confined - sy;
 				}
@@ -1809,7 +1800,7 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 				hover_mon->focus_vout = hover_vout;
 		}
 
-			cursorsync();
+		cursorsync();
 
 		/* Update selmon (even while dragging a window) */
 		if (sloppyfocus) {
@@ -1998,7 +1989,7 @@ void
 setmfact(const Arg *arg)
 {
 	float f;
- 	VirtualOutput *vout = focusvout(selmon);
+	VirtualOutput *vout = focusvout(selmon);
 
 	if (!arg || !vout || !vout->lt[vout->sellt]->arrange)
 		return;
@@ -2088,8 +2079,8 @@ setup(void)
 		ws->state.nmaster = defvorule && defvorule->nmaster > 0 ? defvorule->nmaster : 1;
 		ws->state.sellt = 0;
 		ws->state.lt[0] = defvorule && defvorule->lt_primary ? defvorule->lt_primary : &layouts[0];
-		ws->state.lt[1] = defvorule && defvorule->lt_secondary ? defvorule->lt_secondary :
-			(LENGTH(layouts) > 1) ? &layouts[1] : ws->state.lt[0];
+		ws->state.lt[1] = defvorule && defvorule->lt_secondary ? defvorule->lt_secondary : (LENGTH(layouts) > 1) ? &layouts[1]
+															 : ws->state.lt[0];
 		ws->was_orphaned = false;
 		ws->orphan_vout_name[0] = '\0';
 		ws->orphan_monitor_name[0] = '\0';
@@ -2117,8 +2108,7 @@ setup(void)
 				wlr_linux_dmabuf_v1_create_with_renderer(dpy, 5, drw));
 	}
 
-	if ((drm_fd = wlr_renderer_get_drm_fd(drw)) >= 0 && drw->features.timeline
-			&& backend->features.timeline)
+	if ((drm_fd = wlr_renderer_get_drm_fd(drw)) >= 0 && drw->features.timeline && backend->features.timeline)
 		wlr_linux_drm_syncobj_manager_v1_create(dpy, 1, drm_fd);
 
 	/* Autocreates an allocator for us.
@@ -2161,7 +2151,7 @@ setup(void)
 	output_layout = wlr_output_layout_create(dpy);
 	wl_signal_add(&output_layout->events.change, &layout_change);
 
-    wlr_xdg_output_manager_v1_create(dpy, output_layout);
+	wlr_xdg_output_manager_v1_create(dpy, output_layout);
 
 	/* Configure a listener to be notified when new outputs are available on the
 	 * backend. */
@@ -2192,7 +2182,7 @@ setup(void)
 	session_lock_mgr = wlr_session_lock_manager_v1_create(dpy);
 	wl_signal_add(&session_lock_mgr->events.new_lock, &new_session_lock);
 	locked_bg = wlr_scene_rect_create(layers[LyrBlock], sgeom.width, sgeom.height,
-			(float [4]){0.1f, 0.1f, 0.1f, 1.0f});
+			(float[4]){0.1f, 0.1f, 0.1f, 1.0f});
 	wlr_scene_node_set_enabled(&locked_bg->node, 0);
 
 	/* Use decoration protocols to negotiate server-side decorations */
@@ -2411,8 +2401,8 @@ tabbed(Monitor *m)
 		count++;
 		if (c == active) {
 			if (!virtual_fs && client_box.height > 0 &&
-				(c->geom.x != client_box.x || c->geom.y != client_box.y ||
-				 c->geom.width != client_box.width || c->geom.height != client_box.height))
+					(c->geom.x != client_box.x || c->geom.y != client_box.y ||
+							c->geom.width != client_box.width || c->geom.height != client_box.height))
 				resize(c, client_box, 0);
 			wlr_scene_node_set_enabled(&c->scene->node, 1);
 			client_set_suspended(c, 0);
@@ -2459,12 +2449,10 @@ tile(Monitor *m)
 		if (CLIENT_VOUT(c) != vout || !VISIBLEON(c, m) || c->isfullscreen)
 			continue;
 		if (i < vout->nmaster) {
-			resize(c, (struct wlr_box){.x = area.x, .y = area.y + my, .width = mw,
-				.height = (area.height - my) / (MIN(n, vout->nmaster) - i)}, 0);
+			resize(c, (struct wlr_box){.x = area.x, .y = area.y + my, .width = mw, .height = (area.height - my) / (MIN(n, vout->nmaster) - i)}, 0);
 			my += c->geom.height;
 		} else {
-			resize(c, (struct wlr_box){.x = area.x + mw, .y = area.y + ty,
-				.width = area.width - mw, .height = (area.height - ty) / (n - i)}, 0);
+			resize(c, (struct wlr_box){.x = area.x + mw, .y = area.y + ty, .width = area.width - mw, .height = (area.height - ty) / (n - i)}, 0);
 			ty += c->geom.height;
 		}
 		i++;
@@ -2539,8 +2527,7 @@ updatemons(struct wl_listener *listener, void *data)
 	 * positions, focus, and the stored configuration in wlroots'
 	 * output-manager implementation.
 	 */
-	struct wlr_output_configuration_v1 *config
-			= wlr_output_configuration_v1_create();
+	struct wlr_output_configuration_v1 *config = wlr_output_configuration_v1_create();
 	Client *c;
 	struct wlr_output_configuration_head_v1 *config_head;
 	Monitor *m;
@@ -2559,8 +2546,7 @@ updatemons(struct wl_listener *listener, void *data)
 	}
 	/* Insert outputs that need to */
 	wl_list_for_each(m, &mons, link) {
-		if (m->wlr_output->enabled
-				&& !wlr_output_layout_get(output_layout, m->wlr_output))
+		if (m->wlr_output->enabled && !wlr_output_layout_get(output_layout, m->wlr_output))
 			wlr_output_layout_add_auto(output_layout, m->wlr_output);
 	}
 
@@ -2638,15 +2624,15 @@ updatemons(struct wl_listener *listener, void *data)
 		}
 	}
 
-		/* FIXME: figure out why the cursor image is at 0,0 after turning all
+	/* FIXME: figure out why the cursor image is at 0,0 after turning all
 		 * the monitors on.
 		 * Move the cursor image where it used to be. It does not generate a
 		 * wl_pointer.motion event for the clients, it's only the image what it's
 		 * at the wrong position after all. */
-		wlr_cursor_move(cursor, NULL, 0, 0);
-		cursorsync();
+	wlr_cursor_move(cursor, NULL, 0, 0);
+	cursorsync();
 
-		wlr_output_manager_v1_set_configuration(output_mgr, config);
+	wlr_output_manager_v1_set_configuration(output_mgr, config);
 }
 
 void
@@ -2759,7 +2745,8 @@ xytonode(double x, double y, struct wlr_surface **psurface,
 
 		if (node->type == WLR_SCENE_NODE_BUFFER)
 			surface = wlr_scene_surface_try_from_buffer(
-					wlr_scene_buffer_from_node(node))->surface;
+					wlr_scene_buffer_from_node(node))
+						  ->surface;
 		/* Walk the tree to find a node that knows the client */
 		for (pnode = node; pnode && !c; pnode = &pnode->parent->node)
 			c = pnode->data;
@@ -2769,9 +2756,12 @@ xytonode(double x, double y, struct wlr_surface **psurface,
 		}
 	}
 
-	if (psurface) *psurface = surface;
-	if (pc) *pc = c;
-	if (pl) *pl = l;
+	if (psurface)
+		*psurface = surface;
+	if (pc)
+		*pc = c;
+	if (pl)
+		*pl = l;
 }
 
 void
@@ -2945,7 +2935,7 @@ voutat(Monitor *m, double lx, double ly)
 		if (vout->layout_geom.width <= 0 || vout->layout_geom.height <= 0)
 			continue;
 		if (lx >= vout->layout_geom.x && lx < vout->layout_geom.x + vout->layout_geom.width &&
-			ly >= vout->layout_geom.y && ly < vout->layout_geom.y + vout->layout_geom.height)
+				ly >= vout->layout_geom.y && ly < vout->layout_geom.y + vout->layout_geom.height)
 			return vout;
 	}
 	return focusvout(m);
@@ -3308,9 +3298,7 @@ configurex11(struct wl_listener *listener, void *data)
 	}
 	vout = CLIENT_VOUT(c);
 	if (!vout || !vout->lt[vout->sellt]->arrange) {
-		resize(c, (struct wlr_box){.x = event->x - c->bw,
-				.y = event->y - c->bw, .width = event->width + c->bw * 2,
-				.height = event->height + c->bw * 2}, 0);
+		resize(c, (struct wlr_box){.x = event->x - c->bw, .y = event->y - c->bw, .width = event->width + c->bw * 2, .height = event->height + c->bw * 2}, 0);
 	} else {
 		arrange(c->mon);
 	}

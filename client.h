@@ -112,8 +112,8 @@ client_set_bounds(Client *c, int32_t width, int32_t height)
 		return 0;
 #endif
 	if (wl_resource_get_version(c->surface.xdg->toplevel->resource) >=
-			XDG_TOPLEVEL_CONFIGURE_BOUNDS_SINCE_VERSION && width >= 0 && height >= 0
-			&& (c->bounds.width != width || c->bounds.height != height)) {
+					XDG_TOPLEVEL_CONFIGURE_BOUNDS_SINCE_VERSION &&
+			width >= 0 && height >= 0 && (c->bounds.width != width || c->bounds.height != height)) {
 		c->bounds.width = width;
 		c->bounds.height = height;
 		return wlr_xdg_toplevel_set_bounds(c->surface.xdg->toplevel, width, height);
@@ -135,10 +135,10 @@ static inline void
 client_get_clip(Client *c, struct wlr_box *clip)
 {
 	*clip = (struct wlr_box){
-		.x = 0,
-		.y = 0,
-		.width = c->geom.width - c->bw,
-		.height = c->geom.height - c->bw,
+			.x = 0,
+			.y = 0,
+			.width = c->geom.width - c->bw,
+			.height = c->geom.height - c->bw,
 	};
 
 #ifdef XWAYLAND
@@ -242,7 +242,7 @@ client_is_stopped(Client *c)
 #endif
 
 	wl_client_get_credentials(c->surface.xdg->client->client, &pid, NULL, NULL);
-	if (waitid(P_PID, pid, &in, WNOHANG|WCONTINUED|WSTOPPED|WNOWAIT) < 0) {
+	if (waitid(P_PID, pid, &in, WNOHANG | WCONTINUED | WSTOPPED | WNOWAIT) < 0) {
 		/* This process is not our child process, while is very unlikely that
 		 * it is stopped, in order to do not skip frames, assume that it is. */
 		if (errno == ECHILD)
@@ -326,8 +326,7 @@ client_set_size(Client *c, uint32_t width, uint32_t height)
 		return 0;
 	}
 #endif
-	if ((int32_t)width == c->surface.xdg->toplevel->current.width
-			&& (int32_t)height == c->surface.xdg->toplevel->current.height)
+	if ((int32_t)width == c->surface.xdg->toplevel->current.width && (int32_t)height == c->surface.xdg->toplevel->current.height)
 		return 0;
 	return wlr_xdg_toplevel_set_size(c->surface.xdg->toplevel, (int32_t)width, (int32_t)height);
 }
@@ -340,10 +339,9 @@ client_set_tiled(Client *c, uint32_t edges)
 		wlr_xwayland_surface_set_maximized(c->surface.xwayland,
 				edges != WLR_EDGE_NONE, edges != WLR_EDGE_NONE);
 		return;
-  }
+	}
 #endif
-	if (wl_resource_get_version(c->surface.xdg->toplevel->resource)
-			>= XDG_TOPLEVEL_STATE_TILED_RIGHT_SINCE_VERSION) {
+	if (wl_resource_get_version(c->surface.xdg->toplevel->resource) >= XDG_TOPLEVEL_STATE_TILED_RIGHT_SINCE_VERSION) {
 		wlr_xdg_toplevel_set_tiled(c->surface.xdg->toplevel, edges);
 	} else {
 		wlr_xdg_toplevel_set_maximized(c->surface.xdg->toplevel, edges != WLR_EDGE_NONE);
@@ -365,9 +363,7 @@ static inline int
 client_wants_focus(Client *c)
 {
 #ifdef XWAYLAND
-	return client_is_unmanaged(c)
-		&& wlr_xwayland_surface_override_redirect_wants_focus(c->surface.xwayland)
-		&& wlr_xwayland_surface_icccm_input_model(c->surface.xwayland) != WLR_ICCCM_INPUT_MODEL_NONE;
+	return client_is_unmanaged(c) && wlr_xwayland_surface_override_redirect_wants_focus(c->surface.xwayland) && wlr_xwayland_surface_icccm_input_model(c->surface.xwayland) != WLR_ICCCM_INPUT_MODEL_NONE;
 #endif
 	return 0;
 }

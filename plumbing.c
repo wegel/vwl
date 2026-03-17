@@ -74,7 +74,7 @@ VirtualOutput *focusvout(Monitor *m);
 #include "config.h"
 
 /* Static data */
-static const int layermap[] = { LyrBg, LyrBottom, LyrTop, LyrOverlay };
+static const int layermap[] = {LyrBg, LyrBottom, LyrTop, LyrOverlay};
 
 /* Global variable definitions that are shared between vwl.c and plumbing.c */
 struct wlr_pointer_constraint_v1 *active_constraint;
@@ -506,7 +506,7 @@ requeststartdrag(struct wl_listener *listener, void *data)
 	struct wlr_seat_request_start_drag_event *event = data;
 
 	if (wlr_seat_validate_pointer_grab_serial(seat, event->origin,
-			event->serial))
+			    event->serial))
 		wlr_seat_start_pointer_drag(seat, event->drag, event->serial);
 	else
 		wlr_data_source_destroy(event->drag->source);
@@ -615,8 +615,7 @@ keybinding(uint32_t mods, xkb_keysym_t sym)
 	 */
 	const Key *k;
 	for (k = keys; k < END(keys); k++) {
-		if (CLEANMASK(mods) == CLEANMASK(k->mod)
-				&& sym == k->keysym && k->func) {
+		if (CLEANMASK(mods) == CLEANMASK(k->mod) && sym == k->keysym && k->func) {
 			k->func(&k->arg);
 			return 1;
 		}
@@ -647,10 +646,7 @@ keypress(struct wl_listener *listener, void *data)
 	/* On _press_ if there is no active screen locker,
 	 * attempt to process a compositor keybinding.
 	 * Skip if passthrough is enabled and pointer is locked (eg QEMU grab). */
-	if (!locked
-			&& !(passthrough_on_pointer_lock && active_constraint
-				&& active_constraint->type == WLR_POINTER_CONSTRAINT_V1_LOCKED)
-			&& event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+	if (!locked && !(passthrough_on_pointer_lock && active_constraint && active_constraint->type == WLR_POINTER_CONSTRAINT_V1_LOCKED) && event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
 		for (i = 0; i < nsyms; i++)
 			handled = keybinding(mods, syms[i]) || handled;
 	}
@@ -751,9 +747,9 @@ outputmgrapplyortest(struct wlr_output_configuration_v1 *config, int test)
 		wlr_output_state_set_adaptive_sync_enabled(&state,
 				config_head->state.adaptive_sync_enabled);
 
-apply_or_test:
+	apply_or_test:
 		ok &= test ? wlr_output_test_state(wlr_output, &state)
-				: wlr_output_commit_state(wlr_output, &state);
+			   : wlr_output_commit_state(wlr_output, &state);
 
 		if (!test && ok && wlr_output->enabled)
 			wlr_xcursor_manager_load(cursor_mgr, wlr_output->scale);
@@ -862,11 +858,10 @@ createlayersurface(struct wl_listener *listener, void *data)
 	l->mon = layer_surface->output->data;
 	l->scene_layer = wlr_scene_layer_surface_v1_create(scene_layer, layer_surface);
 	l->scene = l->scene_layer->tree;
-	l->popups = surface->data = wlr_scene_tree_create(layer_surface->current.layer
-			< ZWLR_LAYER_SHELL_V1_LAYER_TOP ? layers[LyrTop] : scene_layer);
+	l->popups = surface->data = wlr_scene_tree_create(layer_surface->current.layer < ZWLR_LAYER_SHELL_V1_LAYER_TOP ? layers[LyrTop] : scene_layer);
 	l->scene->node.data = l->popups->node.data = l;
 
-	wl_list_insert(&l->mon->layers[layer_surface->pending.layer],&l->link);
+	wl_list_insert(&l->mon->layers[layer_surface->pending.layer], &l->link);
 	wlr_surface_send_enter(surface, layer_surface->output);
 }
 
@@ -876,8 +871,7 @@ createlocksurface(struct wl_listener *listener, void *data)
 	SessionLock *lock = wl_container_of(listener, lock, new_surface);
 	struct wlr_session_lock_surface_v1 *lock_surface = data;
 	Monitor *m = lock_surface->output->data;
-	struct wlr_scene_tree *scene_tree = lock_surface->surface->data
-			= wlr_scene_subsurface_tree_create(lock->scene, lock_surface->surface);
+	struct wlr_scene_tree *scene_tree = lock_surface->surface->data = wlr_scene_subsurface_tree_create(lock->scene, lock_surface->surface);
 	m->lock_surface = lock_surface;
 
 	wlr_scene_node_set_position(&scene_tree->node, m->monitor_area.x, m->monitor_area.y);
@@ -992,8 +986,7 @@ void
 createpointer(struct wlr_pointer *pointer)
 {
 	struct libinput_device *device;
-	if (wlr_input_device_is_libinput(&pointer->base)
-			&& (device = wlr_libinput_get_device_handle(&pointer->base))) {
+	if (wlr_input_device_is_libinput(&pointer->base) && (device = wlr_libinput_get_device_handle(&pointer->base))) {
 
 		if (libinput_device_config_tap_get_finger_count(device)) {
 			libinput_device_config_tap_set_enabled(device, tap_to_click);
@@ -1181,12 +1174,12 @@ cursorgap(Monitor *origin, double prev_mm_x, double prev_mm_y)
 	else
 		return 0;
 
-	if (prev_mm_x < origin_left_mm - tolerance_mm || prev_mm_x > origin_right_mm + tolerance_mm
-			|| prev_mm_y < origin_top_mm - tolerance_mm || prev_mm_y > origin_bottom_mm + tolerance_mm)
+	if (prev_mm_x < origin_left_mm - tolerance_mm || prev_mm_x > origin_right_mm + tolerance_mm || prev_mm_y < origin_top_mm - tolerance_mm || prev_mm_y > origin_bottom_mm + tolerance_mm)
 		return 0;
 
 	anchor_mm = (dir == WLR_DIRECTION_LEFT || dir == WLR_DIRECTION_RIGHT)
-			? cursor_phys.y_mm : cursor_phys.x_mm;
+				    ? cursor_phys.y_mm
+				    : cursor_phys.x_mm;
 
 	switch (dir) {
 	case WLR_DIRECTION_RIGHT:
@@ -1408,8 +1401,7 @@ commitlayersurfacenotify(struct wl_listener *listener, void *data)
 		wlr_scene_node_reparent(&l->scene->node, scene_layer);
 		wl_list_remove(&l->link);
 		wl_list_insert(&l->mon->layers[layer_surface->current.layer], &l->link);
-		wlr_scene_node_reparent(&l->popups->node, (layer_surface->current.layer
-				< ZWLR_LAYER_SHELL_V1_LAYER_TOP ? layers[LyrTop] : scene_layer));
+		wlr_scene_node_reparent(&l->popups->node, (layer_surface->current.layer < ZWLR_LAYER_SHELL_V1_LAYER_TOP ? layers[LyrTop] : scene_layer));
 	}
 
 	arrangelayers(l->mon);
@@ -1473,8 +1465,8 @@ arrangelayers(Monitor *m)
 	struct wlr_box old_area = m->window_area;
 	LayerSurface *l;
 	uint32_t layers_above_shell[] = {
-		ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY,
-		ZWLR_LAYER_SHELL_V1_LAYER_TOP,
+			ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY,
+			ZWLR_LAYER_SHELL_V1_LAYER_TOP,
 	};
 	if (!m->wlr_output->enabled)
 		return;
@@ -1641,9 +1633,7 @@ update_fullscreen_idle_inhibit(void)
 
 	if (fullscreen_idle_inhibit) {
 		wl_list_for_each(c, &clients, link) {
-			if (!client_is_unmanaged(c)
-					&& c->isfullscreen
-					&& VISIBLEON(c, CLIENT_MON(c))) {
+			if (!client_is_unmanaged(c) && c->isfullscreen && VISIBLEON(c, CLIENT_MON(c))) {
 				requested = 1;
 				break;
 			}
@@ -1671,8 +1661,7 @@ checkidleinhibitor(struct wlr_surface *exclude)
 	wl_list_for_each(inhibitor, &idle_inhibit_mgr->inhibitors, link) {
 		struct wlr_surface *surface = wlr_surface_get_root_surface(inhibitor->surface);
 		struct wlr_scene_tree *tree = surface->data;
-		if (exclude != surface && (bypass_surface_visibility || (!tree
-				|| wlr_scene_node_coords(&tree->node, &unused_lx, &unused_ly)))) {
+		if (exclude != surface && (bypass_surface_visibility || (!tree || wlr_scene_node_coords(&tree->node, &unused_lx, &unused_ly)))) {
 			inhibited = 1;
 			break;
 		}
@@ -1694,7 +1683,7 @@ createkeyboardgroup(void)
 	/* Prepare an XKB keymap and assign it to the keyboard group. */
 	context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
 	if (!(keymap = xkb_keymap_new_from_names(context, &xkb_rules,
-				XKB_KEYMAP_COMPILE_NO_FLAGS)))
+			      XKB_KEYMAP_COMPILE_NO_FLAGS)))
 		die("failed to compile keymap");
 
 	wlr_keyboard_set_keymap(&group->wlr_group->keyboard, keymap);

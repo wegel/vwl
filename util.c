@@ -8,14 +8,15 @@
 #include "util.h"
 
 void
-die(const char *fmt, ...) {
+die(const char *fmt, ...)
+{
 	va_list ap;
 
 	va_start(ap, fmt);
 	vfprintf(stderr, fmt, ap);
 	va_end(ap);
 
-	if (fmt[0] && fmt[strlen(fmt)-1] == ':') {
+	if (fmt[0] && fmt[strlen(fmt) - 1] == ':') {
 		fputc(' ', stderr);
 		perror(NULL);
 	} else {
@@ -36,7 +37,8 @@ ecalloc(size_t nmemb, size_t size)
 }
 
 int
-fd_set_nonblock(int fd) {
+fd_set_nonblock(int fd)
+{
 	int flags = fcntl(fd, F_GETFL);
 	if (flags < 0) {
 		perror("fcntl(F_GETFL):");
