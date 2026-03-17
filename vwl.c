@@ -126,6 +126,7 @@ void debugstate(const Arg *arg);
 static Monitor *dirtomon(enum wlr_direction dir);
 static VirtualOutput *voutneighbor(VirtualOutput *from, enum wlr_direction dir);
 void focusclient(Client *c, int lift);
+void focusvout(const Arg *arg);
 void focusmon(const Arg *arg);
 void focusstack(const Arg *arg);
 Client *focustop(Monitor *m);
@@ -195,7 +196,7 @@ Workspace *wsbyid(unsigned int id);
 static Workspace *wsfindfree(void);
 static VirtualOutput *createvout(Monitor *m, const char *name);
 static void destroyvout(VirtualOutput *vout);
-VirtualOutput *focusvout(Monitor *m);
+VirtualOutput *focusedvout(Monitor *m);
 static void wsactivate(VirtualOutput *vout, Workspace *ws, int focus_change);
 static void wsattach(VirtualOutput *vout, Workspace *ws);
 static Workspace *wsfirst(VirtualOutput *vout);
@@ -332,7 +333,7 @@ applyrules(Client *c)
 	if (!ws && mon)
 		ws = MON_FOCUS_WS(mon);
 	if (ws && mon && ws->vout && ws->vout->mon != mon) {
-		VirtualOutput *target_vout = focusvout(mon);
+		VirtualOutput *target_vout = focusedvout(mon);
 		if (target_vout)
 			wsmoveto(ws, target_vout);
 	}
@@ -723,7 +724,7 @@ arrange(Monitor *m)
 {
 	Client *c, *fs_client;
 	VirtualOutput *vout;
-	VirtualOutput *prev_focus = focusvout(m);
+	VirtualOutput *prev_focus = focusedvout(m);
 
 	if (!m->wlr_output->enabled)
 		return;
@@ -826,9 +827,9 @@ closemon(Monitor *m)
 	}
 
 	target = selmon;
-	selvout = target ? focusvout(target) : NULL;
+	selvout = target ? focusedvout(target) : NULL;
 	if (target)
-		target_vout = focusvout(target);
+		target_vout = focusedvout(target);
 	wl_list_for_each_safe(vout, vtmp, &m->vouts, link) {
 		wl_list_for_each_safe(ws, wtmp, &vout->workspaces, link) {
 			if (target_vout) {
@@ -840,7 +841,7 @@ closemon(Monitor *m)
 				ws->was_orphaned = true;
 				wsmoveto(ws, target_vout);
 				/* target_vout may gain focus workspace; keep pointer current */
-				target_vout = focusvout(target);
+				target_vout = focusedvout(target);
 			} else {
 				wssave(vout);
 				wl_list_remove(&ws->link);
@@ -1097,7 +1098,7 @@ createmon(struct wl_listener *listener, void *data)
 	}
 
 	if (selmon == m) {
-		selvout = focusvout(m);
+		selvout = focusedvout(m);
 		selws = selvout ? selvout->ws : NULL;
 	}
 	arrange(m);
@@ -1396,7 +1397,7 @@ focusclient(Client *c, int lift)
 		selmon = c->mon;
 		selvout = CLIENT_VOUT(c);
 		if (selvout && selvout->mon != selmon)
-			selvout = focusvout(selmon);
+			selvout = focusedvout(selmon);
 		if (selvout && selvout->mon == selmon)
 			selws = selvout->ws;
 		if (selmon && selvout)
@@ -1466,10 +1467,40 @@ focusmon(const Arg *arg)
 		while (!selmon->wlr_output->enabled && i++ < nmons);
 	}
 	if (selmon) {
-		selvout = focusvout(selmon);
+		selvout = focusedvout(selmon);
 		selws = selvout ? selvout->ws : NULL;
 	}
 	focusclient(focustop(selmon), 1);
+}
+
+void
+focusvout(const Arg *arg)
+{
+	int i = 0, nmons = wl_list_length(&mons);
+	Monitor *target_mon = NULL;
+	VirtualOutput *origin_vout, *target_vout;
+
+	if (!selmon || !arg || !arg->i)
+		return;
+
+	origin_vout = focusedvout(selmon);
+	if (!origin_vout)
+		return;
+
+	target_vout = voutneighbor(origin_vout, arg->i);
+	if (!target_vout && nmons) {
+		do /* don't switch to disabled mons */
+			target_mon = dirtomon(arg->i);
+		while (target_mon && !target_mon->wlr_output->enabled && i++ < nmons);
+
+		if (target_mon && target_mon != selmon)
+			target_vout = focusedvout(target_mon);
+	}
+
+	if (!target_vout || target_vout == origin_vout)
+		return;
+
+	ipc_focus_virtual_output(target_vout);
 }
 
 static bool
@@ -1496,7 +1527,7 @@ focusstack(const Arg *arg)
 {
 	/* Focus the next or previous client (in tiling order) on selmon */
 	Client *c, *sel = focustop(selmon);
-	VirtualOutput *vout = focusvout(selmon);
+	VirtualOutput *vout = focusedvout(selmon);
 	bool restrict_to_vout = false;
 	if (!sel || tiling_locked_by_fullscreen(sel))
 		return;
@@ -1530,7 +1561,7 @@ void
 tabmove(const Arg *arg)
 {
 	Client *sel = focustop(selmon);
-	VirtualOutput *vout = focusvout(selmon);
+	VirtualOutput *vout = focusedvout(selmon);
 	struct wl_list *link;
 	Client *target = NULL;
 	int dir;
@@ -1586,7 +1617,7 @@ tabmove(const Arg *arg)
 Client *
 focustop(Monitor *m)
 {
-	return focustopvout(focusvout(m));
+	return focustopvout(focusedvout(m));
 }
 
 void
@@ -1779,7 +1810,7 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 		if (sloppyfocus) {
 			selmon = hover_mon;
 			if (selmon) {
-				selvout = hover_vout ? hover_vout : focusvout(selmon);
+				selvout = hover_vout ? hover_vout : focusedvout(selmon);
 			}
 		}
 	}
@@ -1941,7 +1972,7 @@ setfullscreen(Client *c, int fullscreen)
 void
 setlayout(const Arg *arg)
 {
-	VirtualOutput *vout = focusvout(selmon);
+	VirtualOutput *vout = focusedvout(selmon);
 
 	if (!vout)
 		return;
@@ -1961,7 +1992,7 @@ void
 setmfact(const Arg *arg)
 {
 	float f;
-	VirtualOutput *vout = focusvout(selmon);
+	VirtualOutput *vout = focusedvout(selmon);
 
 	if (!arg || !vout || !vout->lt[vout->sellt]->arrange)
 		return;
@@ -2273,7 +2304,7 @@ tag(const Arg *arg)
 	if (!ws)
 		return;
 	if (!ws->vout && selmon) {
-		VirtualOutput *vout = focusvout(selmon);
+		VirtualOutput *vout = focusedvout(selmon);
 		if (vout)
 			wsattach(vout, ws);
 	}
@@ -2289,7 +2320,7 @@ tagmon(const Arg *arg)
 	if (!selmon || !(m = dirtomon(arg->i)))
 		return;
 	if (sel) {
-		VirtualOutput *vout = focusvout(m);
+		VirtualOutput *vout = focusedvout(m);
 		if (vout && vout->ws)
 			setworkspace(sel, vout->ws);
 	}
@@ -2306,7 +2337,7 @@ moveworkspace(const Arg *arg)
 
 	if (!selmon || !(active = MON_FOCUS_WS(selmon)))
 		return;
-	origin_vout = active->vout ? active->vout : focusvout(selmon);
+	origin_vout = active->vout ? active->vout : focusedvout(selmon);
 	target_vout = voutneighbor(origin_vout, arg->i);
 	if (target_vout) {
 		target = target_vout->mon;
@@ -2314,7 +2345,7 @@ moveworkspace(const Arg *arg)
 		target = dirtomon(arg->i);
 		if (!target || target == selmon)
 			return;
-		target_vout = focusvout(target);
+		target_vout = focusedvout(target);
 		if (!target_vout)
 			return;
 	}
@@ -2337,7 +2368,7 @@ moveworkspace(const Arg *arg)
 void
 tabbed(Monitor *m)
 {
-	VirtualOutput *vout = focusvout(m);
+	VirtualOutput *vout = focusedvout(m);
 	struct wlr_box area;
 	struct wlr_box client_box;
 	Client *c, *active;
@@ -2395,7 +2426,7 @@ tile(Monitor *m)
 	unsigned int mw, my, ty;
 	int i, n = 0;
 	Client *c;
-	VirtualOutput *vout = focusvout(m);
+	VirtualOutput *vout = focusedvout(m);
 	struct wlr_box area;
 
 	if (!vout)
@@ -2459,7 +2490,7 @@ toggletabbed(const Arg *arg)
 {
 	const Layout *tab = arg && arg->v ? arg->v : NULL;
 	Arg tile_arg = {.v = &layouts[0]};
-	VirtualOutput *vout = focusvout(selmon);
+	VirtualOutput *vout = focusedvout(selmon);
 	if (!vout || !tab)
 		return;
 	if (vout->lt[vout->sellt] == tab)
@@ -2590,7 +2621,7 @@ updatemons(struct wl_listener *listener, void *data)
 	}
 
 	if (selmon && selmon->wlr_output->enabled) {
-		VirtualOutput *vout = focusvout(selmon);
+		VirtualOutput *vout = focusedvout(selmon);
 		wl_list_for_each(c, &clients, link) {
 			if (!vt_recovery_mode && !c->mon && client_surface(c)->mapped && vout && vout->ws)
 				setworkspace(c, vout->ws);
@@ -2672,10 +2703,10 @@ view(const Arg *arg)
 			if (pointer_vout)
 				target = pointer_vout;
 			else if (pointer_mon)
-				target = focusvout(pointer_mon);
+				target = focusedvout(pointer_mon);
 		}
 		if (!target && selmon)
-			target = focusvout(selmon);
+			target = focusedvout(selmon);
 		if (!target)
 			return;
 		wsattach(target, ws);
@@ -2742,7 +2773,7 @@ void
 zoom(const Arg *arg)
 {
 	Client *c, *sel = focustop(selmon);
-	VirtualOutput *vout = focusvout(selmon);
+	VirtualOutput *vout = focusedvout(selmon);
 
 	if (!sel || !vout || !vout->lt[vout->sellt]->arrange)
 		return;
@@ -2887,7 +2918,7 @@ ipc_move_workspace_to_vout(Workspace *ws, VirtualOutput *vout)
 }
 
 VirtualOutput *
-focusvout(Monitor *m)
+focusedvout(Monitor *m)
 {
 	VirtualOutput *vout;
 	if (!m) {
@@ -2912,7 +2943,7 @@ voutat(Monitor *m, double lx, double ly)
 				ly >= vout->layout_geom.y && ly < vout->layout_geom.y + vout->layout_geom.height)
 			return vout;
 	}
-	return focusvout(m);
+	return focusedvout(m);
 }
 
 void

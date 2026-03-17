@@ -3,7 +3,7 @@
 wlroots-based Wayland compositor with virtual outputs and physical cursor continuity.
 Originally forked from dwl.
 
-`LOC: 5951 total, 2796 vwl.c`
+`LOC: 5976 total, 2820 vwl.c`
 
 ## Features
 
@@ -29,8 +29,8 @@ Originally forked from dwl.
 - `mod+t` toggle tabbed layout
 - `mod+space` cycle layout
 - `mod+shift+e` quit compositor
-- `mod+comma` focus monitor left
-- `mod+period` focus monitor right
+- `mod+comma` focus virtual output left
+- `mod+period` focus virtual output right
 - `mod+shift+</>` move client to monitor left/right
 - `mod+0-9` view workspace `0-9`
 - `mod+shift+0-9` move client to workspace `0-9`
