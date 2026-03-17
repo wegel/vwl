@@ -60,6 +60,7 @@ void zoom(const Arg *arg);
 void togglefullscreen(const Arg *arg);
 void toggletabbed(const Arg *arg);
 void setlayout(const Arg *arg);
+void focusvout(const Arg *arg);
 void focusmon(const Arg *arg);
 void tagmon(const Arg *arg);
 void moveworkspace(const Arg *arg);
@@ -69,7 +70,7 @@ void chvt(const Arg *arg);
 void debugstate(const Arg *arg);
 
 /* Forward declarations for functions needed from vwl.c */
-VirtualOutput *focusvout(Monitor *m);
+VirtualOutput *focusedvout(Monitor *m);
 
 #include "config.h"
 

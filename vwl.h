@@ -19,7 +19,7 @@
 #define CLEANMASK(mask) (mask & ~WLR_MODIFIER_CAPS)
 #define CLIENT_VOUT(C) ((C)->ws ? (C)->ws->vout : NULL)
 #define CLIENT_MON(C) (CLIENT_VOUT(C) ? CLIENT_VOUT(C)->mon : NULL)
-#define MON_FOCUS_WS(M) (focusvout(M) ? focusvout(M)->ws : NULL)
+#define MON_FOCUS_WS(M) (focusedvout(M) ? focusedvout(M)->ws : NULL)
 #define VISIBLEON(C, M) ((M) && (C)->ws && CLIENT_MON(C) == (M) && CLIENT_VOUT(C) && CLIENT_VOUT(C)->ws == (C)->ws)
 #define LENGTH(X) (sizeof X / sizeof X[0])
 #define END(A) ((A) + LENGTH(A))
@@ -390,7 +390,7 @@ void destroydecoration(struct wl_listener *listener, void *data);
 void destroysessionlock(struct wl_listener *listener, void *data);
 void unlocksession(struct wl_listener *listener, void *data);
 void quit(const Arg *arg);
-VirtualOutput *focusvout(Monitor *m);
+VirtualOutput *focusedvout(Monitor *m);
 Monitor *monitorbyname(const char *name);
 Workspace *wsbyid(unsigned int id);
 VirtualOutput *voutbyid(unsigned int id);

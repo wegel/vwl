@@ -259,7 +259,7 @@ build_snapshot(void)
 			fputs(",\"workarea\":", fp);
 			json_write_box(fp, &m->window_area);
 
-			active_vout = focusvout(m);
+			active_vout = focusedvout(m);
 			fprintf(fp, ",\"active_virtual_output\":");
 			if (active_vout)
 				fprintf(fp, "%u", active_vout->id);
