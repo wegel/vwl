@@ -1,6 +1,7 @@
 /tmp/
 /patches/
 vwl
+vwlctl
 *.o
 *.log
 *-protocol.c
