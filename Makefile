@@ -16,8 +16,16 @@ PKGS      = wayland-server xkbcommon libinput cairo pangocairo $(XLIBS)
 DWLCFLAGS = `$(PKG_CONFIG) --cflags $(PKGS)` $(WLR_INCS) $(DWLCPPFLAGS) $(DWLDEVCFLAGS) $(CFLAGS)
 LDLIBS    = `$(PKG_CONFIG) --libs $(PKGS)` $(WLR_LIBS) -lm $(LIBS)
 TOOLCFLAGS = -I. $(DWLDEVCFLAGS) $(CFLAGS)
+CLANG_FORMAT ?= clang-format
+FORMAT_SRCS = client.h ipc.c ipc.h plumbing.c util.c util.h vwl.c vwl.h vwlctl.c
 
 all: vwl vwlctl
+
+format:
+	$(CLANG_FORMAT) -i -style=file $(FORMAT_SRCS)
+
+format-check:
+	$(CLANG_FORMAT) --dry-run --Werror -style=file $(FORMAT_SRCS)
 
 vwl: vwl.o plumbing.o util.o ipc.o
 	$(CC) vwl.o plumbing.o util.o ipc.o $(DWLCFLAGS) $(LDFLAGS) $(LDLIBS) -o $@
@@ -72,7 +80,7 @@ clean:
 
 dist: clean
 	mkdir -p vwl-$(VERSION)
-	cp -R LICENSE* Makefile CHANGELOG.md README.md client.h config.def.h \
+	cp -R .clang-format .clang-format-ignore LICENSE* Makefile CHANGELOG.md README.md client.h config.def.h \
 		config.mk docs ipc.c ipc.h protocols vwl.c vwl.h vwlctl.c util.c util.h vwl.desktop VWL_FEATURES.md \
 		vwl-$(VERSION)
 	tar -caf vwl-$(VERSION).tar.gz vwl-$(VERSION)
