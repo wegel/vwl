@@ -34,6 +34,7 @@
 #include <wlr/types/wlr_data_device.h>
 #include <wlr/types/wlr_drm.h>
 #include <wlr/types/wlr_export_dmabuf_v1.h>
+#include <wlr/types/wlr_ext_foreign_toplevel_list_v1.h>
 #include <wlr/types/wlr_fractional_scale_v1.h>
 #include <wlr/types/wlr_gamma_control_v1.h>
 #include <wlr/types/wlr_idle_inhibit_v1.h>
@@ -224,6 +225,7 @@ static struct wlr_virtual_keyboard_manager_v1 *virtual_keyboard_mgr;
 static struct wlr_virtual_pointer_manager_v1 *virtual_pointer_mgr;
 static struct wlr_cursor_shape_manager_v1 *cursor_shape_mgr;
 static struct wlr_output_power_manager_v1 *power_mgr;
+static struct wlr_ext_foreign_toplevel_list_v1 *foreign_toplevel_list;
 
 static struct wlr_pointer_constraints_v1 *pointer_constraints;
 static struct wlr_relative_pointer_manager_v1 *relative_pointer_mgr;
@@ -233,6 +235,7 @@ static struct wlr_session_lock_manager_v1 *session_lock_mgr;
 
 static struct wlr_box sgeom;
 static bool vt_recovery_mode = false; /* Track if we're recovering from VT switch */
+static uint64_t windowIDCounter = 0x14000000;
 
 /* Global event handlers are now in plumbing.c */
 extern struct wl_listener cursor_axis;
@@ -1608,7 +1611,6 @@ killclient(const Arg *arg)
 	if (sel)
 		client_send_close(sel);
 }
-
 void
 mapnotify(struct wl_listener *listener, void *data)
 {
@@ -1617,6 +1619,7 @@ mapnotify(struct wl_listener *listener, void *data)
 	Client *w, *c = wl_container_of(listener, c, map);
 	Monitor *m;
 	int i;
+	struct wlr_ext_foreign_toplevel_handle_v1_state state;
 
 	/* Create scene tree for this client and its border */
 	c->scene = client_surface(c)->data = wlr_scene_tree_create(layers[LyrTile]);
@@ -1668,6 +1671,16 @@ mapnotify(struct wl_listener *listener, void *data)
 	}
 	if (vt_recovery_mode && c->ws)
 		vt_recovery_mode = false;
+
+	if (c && c->type == XDGShell && c->mon && c->mon->wlr_output && c->mon->wlr_output->enabled) {
+		state.title = client_get_title(c);
+		state.app_id = client_get_appid(c);
+
+		c->foreign_toplevel = wlr_ext_foreign_toplevel_handle_v1_create(foreign_toplevel_list, &state);
+		c->foreign_toplevel->data = c;
+		c->foreign_toplevel->identifier = ecalloc(1, (CHAR_BIT * sizeof(uint64_t) - 1) / 3 + 2);
+		sprintf(c->foreign_toplevel->identifier, "%lu", windowIDCounter++);
+	}
 	updateipc();
 
 unset_fullscreen:
@@ -1980,15 +1993,16 @@ setworkspace(Client *c, Workspace *ws)
 	VirtualOutput *vout = ws ? ws->vout : NULL;
 	Workspace *oldws = c->ws;
 	Monitor *newmon = vout ? vout->mon : NULL;
+	int monitor_changed = oldmon != newmon;
 	int workspace_changed = oldws != ws;
-	if (!workspace_changed && oldmon == newmon)
+	if (!workspace_changed && !monitor_changed)
 		return;
 
 	c->ws = ws;
 	c->mon = newmon;
 	c->prev = c->geom;
 
-	if (oldmon && oldmon != c->mon)
+	if (oldmon && monitor_changed)
 		arrange(oldmon);
 
 	if (c->mon) {
@@ -2228,6 +2242,7 @@ setup(void)
 	output_mgr = wlr_output_manager_v1_create(dpy);
 	wl_signal_add(&output_mgr->events.apply, &output_mgr_apply);
 	wl_signal_add(&output_mgr->events.test, &output_mgr_test);
+	foreign_toplevel_list = wlr_ext_foreign_toplevel_list_v1_create(dpy, 1);
 
 	/* Make sure XWayland clients don't connect to the parent X server,
 	 * e.g when running in the x11 backend or the wayland backend and the
@@ -2490,6 +2505,12 @@ unmapnotify(struct wl_listener *listener, void *data)
 			arrange(m);
 	}
 
+	if (c->foreign_toplevel) {
+		wlr_ext_foreign_toplevel_handle_v1_destroy(c->foreign_toplevel);
+		/* free(c->foreign_toplevel->identifier); */
+		c->foreign_toplevel = NULL;
+	}
+
 	updateipc();
 	wlr_scene_node_destroy(&c->scene->node);
 	motionnotify(0, NULL, 0, 0, 0, 0);
@@ -2620,6 +2641,7 @@ updatetitle(struct wl_listener *listener, void *data)
 	Monitor *m = CLIENT_MON(c);
 	VirtualOutput *vout = CLIENT_VOUT(c);
 	struct wlr_box area = {0};
+	struct wlr_ext_foreign_toplevel_handle_v1_state state;
 
 	if (c == focustop(c->mon))
 		updateipc();
@@ -2633,6 +2655,11 @@ updatetitle(struct wl_listener *listener, void *data)
 	else
 		area = m->window_area;
 	tabhdrupdate(m, vout, area, focustopvout(vout));
+	if (c->foreign_toplevel) {
+		state.title = client_get_title(c);
+		state.app_id = client_get_appid(c);
+		wlr_ext_foreign_toplevel_handle_v1_update_state(c->foreign_toplevel, &state);
+	}
 }
 
 void
