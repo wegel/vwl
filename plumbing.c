@@ -23,6 +23,8 @@
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_cursor_shape_v1.h>
 #include <wlr/types/wlr_data_device.h>
+#include <wlr/types/wlr_ext_image_capture_source_v1.h>
+#include <wlr/types/wlr_ext_foreign_toplevel_list_v1.h>
 #include <wlr/types/wlr_seat.h>
 #include <wlr/types/wlr_fractional_scale_v1.h>
 #include <wlr/types/wlr_idle_notify_v1.h>
@@ -145,6 +147,7 @@ void destroydecoration(struct wl_listener *listener, void *data);
 void cursorwarptohint(void);
 void destroysessionlock(struct wl_listener *listener, void *data);
 void unlocksession(struct wl_listener *listener, void *data);
+void capture(struct wl_listener *listener, void *data);
 
 /* Forward declarations for event handler functions (currently in vwl.c, will be moved later) */
 void gpureset(struct wl_listener *listener, void *data);
@@ -204,6 +207,7 @@ struct wl_listener request_set_cursor_shape = {.notify = setcursorshape};
 struct wl_listener request_start_drag = {.notify = requeststartdrag};
 struct wl_listener start_drag = {.notify = startdrag};
 struct wl_listener new_session_lock = {.notify = locksession};
+struct wl_listener new_foreign_toplevel_capture_request = {.notify = capture};
 #ifdef XWAYLAND
 struct wl_listener new_xwayland_surface = {.notify = createnotifyx11};
 struct wl_listener xwayland_ready = {.notify = xwaylandready};
@@ -252,6 +256,7 @@ cleanuplisteners(void)
 	wl_list_remove(&request_start_drag.link);
 	wl_list_remove(&start_drag.link);
 	wl_list_remove(&new_session_lock.link);
+	wl_list_remove(&new_foreign_toplevel_capture_request.link);
 #ifdef XWAYLAND
 	wl_list_remove(&new_xwayland_surface.link);
 	wl_list_remove(&xwayland_ready.link);
@@ -1422,6 +1427,23 @@ unmaplayersurfacenotify(struct wl_listener *listener, void *data)
 	if (l->layer_surface->surface == seat->keyboard_state.focused_surface)
 		focusclient(focustop(selmon), 1);
 	motionnotify(0, NULL, 0, 0, 0, 0);
+}
+
+void
+capture(struct wl_listener *listener, void *data)
+{
+	struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request *request = data;
+	struct Client *c = request->toplevel_handle->data;
+
+	if (c->image_capture_source == NULL) {
+		c->image_capture_source = wlr_ext_image_capture_source_v1_create_with_scene_node(
+				&c->image_capture_scene->tree.node, event_loop, alloc, drw);
+		if (c->image_capture_source == NULL) {
+			return;
+		}
+	}
+
+	wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request_accept(request, c->image_capture_source);
 }
 
 void
