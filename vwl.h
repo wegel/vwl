@@ -12,6 +12,7 @@
 #ifdef XWAYLAND
 #include <wlr/xwayland.h>
 #endif
+#include "xdg-shell-protocol.h"
 
 /* macros */
 #define MAX(A, B) ((A) > (B) ? (A) : (B))
@@ -99,6 +100,9 @@ struct Client {
 	} surface;
 	struct wlr_xdg_toplevel_decoration_v1 *decoration;
 	struct wlr_ext_foreign_toplevel_handle_v1 *foreign_toplevel;
+	struct wlr_scene *image_capture_scene;
+	struct wlr_ext_image_capture_source_v1 *image_capture_source;
+	struct wlr_scene_tree *image_capture_tree;
 	struct wl_listener commit;
 	struct wl_listener map;
 	struct wl_listener maximize;
@@ -366,6 +370,7 @@ void powermgrsetmode(struct wl_listener *listener, void *data);
 void createdecoration(struct wl_listener *listener, void *data);
 void locksession(struct wl_listener *listener, void *data);
 void commitpopup(struct wl_listener *listener, void *data);
+void capture(struct wl_listener *listener, void *data);
 void cursorconstrain(struct wlr_pointer_constraint_v1 *constraint);
 void cursorwarptohint(void);
 void cursorinteg(double dx, double dy);

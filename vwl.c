@@ -231,6 +231,8 @@ static struct wlr_virtual_pointer_manager_v1 *virtual_pointer_mgr;
 static struct wlr_cursor_shape_manager_v1 *cursor_shape_mgr;
 static struct wlr_output_power_manager_v1 *power_mgr;
 static struct wlr_ext_foreign_toplevel_list_v1 *foreign_toplevel_list;
+static struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1
+		*ext_foreign_toplevel_image_capture_source_manager_v1;
 
 static struct wlr_pointer_constraints_v1 *pointer_constraints;
 static struct wlr_relative_pointer_manager_v1 *relative_pointer_mgr;
@@ -271,6 +273,7 @@ extern struct wl_listener request_set_cursor_shape;
 extern struct wl_listener request_start_drag;
 extern struct wl_listener start_drag;
 extern struct wl_listener new_session_lock;
+extern struct wl_listener new_foreign_toplevel_capture_request;
 
 #ifdef XWAYLAND
 static void activatex11(struct wl_listener *listener, void *data);
@@ -1682,6 +1685,7 @@ mapnotify(struct wl_listener *listener, void *data)
 	if (vt_recovery_mode && c->ws)
 		vt_recovery_mode = false;
 
+	/* TODO: refine this if */
 	if (c && c->type == XDGShell && c->mon && c->mon->wlr_output && c->mon->wlr_output->enabled) {
 		state.title = client_get_title(c);
 		state.app_id = client_get_appid(c);
@@ -1690,6 +1694,11 @@ mapnotify(struct wl_listener *listener, void *data)
 		c->foreign_toplevel->data = c;
 		c->foreign_toplevel->identifier = ecalloc(1, (CHAR_BIT * sizeof(uint64_t) - 1) / 3 + 2);
 		sprintf(c->foreign_toplevel->identifier, "%lu", windowIDCounter++);
+
+		c->image_capture_scene = wlr_scene_create();
+		if (c->image_capture_scene)
+			c->image_capture_scene->restack_xwayland_surfaces = false;
+		c->image_capture_tree = wlr_scene_xdg_surface_create(&c->image_capture_scene->tree, c->surface.xdg);
 	}
 	updateipc();
 
@@ -2125,6 +2134,10 @@ setup(void)
 	wlr_screencopy_manager_v1_create(dpy);
 	wlr_ext_image_copy_capture_manager_v1_create(dpy, 1);
 	wlr_ext_output_image_capture_source_manager_v1_create(dpy, 1);
+	ext_foreign_toplevel_image_capture_source_manager_v1 =
+			wlr_ext_foreign_toplevel_image_capture_source_manager_v1_create(dpy, 1);
+	wl_signal_add(&ext_foreign_toplevel_image_capture_source_manager_v1->events.new_request,
+			&new_foreign_toplevel_capture_request);
 	wlr_data_control_manager_v1_create(dpy);
 	wlr_primary_selection_v1_device_manager_create(dpy);
 	wlr_viewporter_create(dpy);
@@ -2519,11 +2532,13 @@ unmapnotify(struct wl_listener *listener, void *data)
 
 	if (c->foreign_toplevel) {
 		wlr_ext_foreign_toplevel_handle_v1_destroy(c->foreign_toplevel);
+		/* TODO: why does this lead to a crash? */
 		/* free(c->foreign_toplevel->identifier); */
 		c->foreign_toplevel = NULL;
 	}
 
 	updateipc();
+	wlr_scene_node_destroy(&c->image_capture_scene->tree.node);
 	wlr_scene_node_destroy(&c->scene->node);
 	motionnotify(0, NULL, 0, 0, 0, 0);
 }
