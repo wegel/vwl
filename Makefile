@@ -29,7 +29,7 @@ format-check:
 
 vwl: vwl.o plumbing.o util.o ipc.o
 	$(CC) vwl.o plumbing.o util.o ipc.o $(DWLCFLAGS) $(LDFLAGS) $(LDLIBS) -o $@
-vwl.o: vwl.c vwl.h client.h config.h config.mk cursor-shape-v1-protocol.h \
+vwl.o: vwl.c vwl.h client.h config.h config.mk cursor-shape-v1-protocol.h ext-image-copy-capture-v1-protocol.h \
 	pointer-constraints-unstable-v1-protocol.h wlr-layer-shell-unstable-v1-protocol.h \
 	wlr-output-power-management-unstable-v1-protocol.h xdg-shell-protocol.h ipc.h
 plumbing.o: plumbing.c vwl.h ipc.h util.h config.h
@@ -50,6 +50,9 @@ WAYLAND_PROTOCOLS = `$(PKG_CONFIG) --variable=pkgdatadir wayland-protocols`
 cursor-shape-v1-protocol.h:
 	$(WAYLAND_SCANNER) enum-header \
 		$(WAYLAND_PROTOCOLS)/staging/cursor-shape/cursor-shape-v1.xml $@
+ext-image-copy-capture-v1-protocol.h:
+	$(WAYLAND_SCANNER) server-header \
+		$(WAYLAND_PROTOCOLS)/staging/ext-image-capture-source/ext-image-capture-source-v1.xml $@
 pointer-constraints-unstable-v1-protocol.h:
 	$(WAYLAND_SCANNER) enum-header \
 		$(WAYLAND_PROTOCOLS)/unstable/pointer-constraints/pointer-constraints-unstable-v1.xml $@
