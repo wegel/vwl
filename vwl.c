@@ -3218,6 +3218,7 @@ wsmoveto(Workspace *ws, VirtualOutput *vout)
 		return;
 	old = ws->vout;
 	old_mon = old ? old->mon : NULL;
+	fallback = old ? old->ws : NULL;
 	wsattach(vout, ws);
 	wsactivate(vout, ws, 1);
 	if (ws) {
@@ -3228,6 +3229,8 @@ wsmoveto(Workspace *ws, VirtualOutput *vout)
 		}
 	}
 	if (old) {
+		if (fallback && fallback != ws)
+			return;
 		fallback = wsnext(old, ws);
 		if (!fallback)
 			fallback = wsfirst(old);
