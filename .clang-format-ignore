@@ -1,4 +1,5 @@
 *-protocol.c
 *-protocol.h
 config.def.h
+config.h
 xdg-shell-protocol.h
