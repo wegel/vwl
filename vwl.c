@@ -21,6 +21,7 @@
 #include <unistd.h>
 #include <wayland-server-core.h>
 #include <drm_fourcc.h>
+#include <wayland-util.h>
 #include <wlr/backend.h>
 #include <wlr/backend/libinput.h>
 #include <wlr/interfaces/wlr_buffer.h>
@@ -69,6 +70,7 @@
 #include <wlr/types/wlr_xdg_decoration_v1.h>
 #include <wlr/types/wlr_xdg_output_v1.h>
 #include <wlr/types/wlr_xdg_shell.h>
+#include <wlr/util/box.h>
 #include <wlr/util/log.h>
 #include <wlr/util/region.h>
 #include <xkbcommon/xkbcommon.h>
@@ -124,7 +126,7 @@ void destroypointerconstraint(struct wl_listener *listener, void *data);
 void destroykeyboardgroup(struct wl_listener *listener, void *data);
 void debugstate(const Arg *arg);
 static Monitor *dirtomon(enum wlr_direction dir);
-static VirtualOutput *voutneighbor(VirtualOutput *from, enum wlr_direction dir);
+static VirtualOutput *voutneighbor(VirtualOutput *from, enum wlr_direction dir, enum DistanceMode distmode);
 void focusclient(Client *c, int lift);
 void focusvout(const Arg *arg);
 void focusmon(const Arg *arg);
@@ -1143,6 +1145,7 @@ debugstate(const Arg *arg)
 				m->window_area.width, m->window_area.height);
 		fprintf(f, "  focus_vout: %s\n", m->focus_vout ? m->focus_vout->name : "(null)");
 		fprintf(f, "  asleep: %d\n", m->asleep);
+		fprintf(f, "  enabled: %d\n", m->wlr_output->enabled);
 
 		fprintf(f, "  virtual outputs:\n");
 		wl_list_for_each(vout, &m->vouts, link) {
@@ -1260,86 +1263,55 @@ dirtomon(enum wlr_direction dir)
 }
 
 static VirtualOutput *
-voutneighbor(VirtualOutput *from, enum wlr_direction dir)
+voutneighbor(VirtualOutput *from, enum wlr_direction dir, enum DistanceMode distmode)
 {
-	static const enum wlr_direction order[] = {
-			WLR_DIRECTION_LEFT,
-			WLR_DIRECTION_RIGHT,
-			WLR_DIRECTION_UP,
-			WLR_DIRECTION_DOWN,
-	};
 	struct wlr_box ref;
-	double ref_cx, ref_cy;
-	size_t i;
+	VirtualOutput *best = NULL, *vout;
+	double best_metric = (distmode == NEAREST) ? DBL_MAX : DBL_MIN;
 
-	if (!from || !from->mon)
+	if (!from || !from->mon || !dir)
 		return NULL;
 	ref = (from->layout_geom.width > 0 && from->layout_geom.height > 0) ? from->layout_geom
 									    : from->mon->window_area;
-	if (ref.width <= 0 || ref.height <= 0)
+	if (wlr_box_empty(&ref))
 		return NULL;
-	ref_cx = ref.x + ref.width / 2.0;
-	ref_cy = ref.y + ref.height / 2.0;
 
-	for (i = 0; i < LENGTH(order); i++) {
-		enum wlr_direction want = order[i];
-		VirtualOutput *best = NULL, *vout;
-		double best_metric = (want == WLR_DIRECTION_LEFT || want == WLR_DIRECTION_UP) ? -DBL_MAX : DBL_MAX;
+	wl_list_for_each(vout, &from->mon->vouts, link) {
+		struct wlr_box box;
+		double x, y, dist;
+		bool overlaps = false;
 
-		if (dir && !(dir & want))
+		if (vout == from)
 			continue;
-		wl_list_for_each(vout, &from->mon->vouts, link) {
-			struct wlr_box box;
-			double cx, cy;
-			bool overlaps;
+		box = (vout->layout_geom.width > 0 && vout->layout_geom.height > 0) ? vout->layout_geom
+										    : vout->mon->window_area;
+		if (wlr_box_empty(&box))
+			continue;
 
-			if (vout == from)
-				continue;
-			box = (vout->layout_geom.width > 0 && vout->layout_geom.height > 0) ? vout->layout_geom
-											    : vout->mon->window_area;
-			if (box.width <= 0 || box.height <= 0)
-				continue;
-			cx = box.x + box.width / 2.0;
-			cy = box.y + box.height / 2.0;
-			if (want == WLR_DIRECTION_LEFT || want == WLR_DIRECTION_RIGHT)
-				overlaps = box.y < ref.y + ref.height && ref.y < box.y + box.height;
-			else
-				overlaps = box.x < ref.x + ref.width && ref.x < box.x + box.width;
-			if (!overlaps)
-				continue;
-			switch (want) {
-			case WLR_DIRECTION_LEFT:
-				if (cx >= ref_cx)
-					continue;
-				if (cx > best_metric)
-					best_metric = cx, best = vout;
-				break;
-			case WLR_DIRECTION_RIGHT:
-				if (cx <= ref_cx)
-					continue;
-				if (cx < best_metric)
-					best_metric = cx, best = vout;
-				break;
-			case WLR_DIRECTION_UP:
-				if (cy >= ref_cy)
-					continue;
-				if (cy > best_metric)
-					best_metric = cy, best = vout;
-				break;
-			case WLR_DIRECTION_DOWN:
-				if (cy <= ref_cy)
-					continue;
-				if (cy < best_metric)
-					best_metric = cy, best = vout;
-				break;
-			default:
-				break;
-			}
+		if (dir & WLR_DIRECTION_LEFT) {
+			overlaps = box.x + box.width <= ref.x || overlaps;
 		}
-		if (best)
-			return best;
+		if (dir & WLR_DIRECTION_RIGHT) {
+			overlaps = box.x >= ref.x + ref.width || overlaps;
+		}
+		if (dir & WLR_DIRECTION_UP) {
+			overlaps = box.y + box.height <= ref.y || overlaps;
+		}
+		if (dir & WLR_DIRECTION_DOWN) {
+			overlaps = box.y >= ref.y + ref.height || overlaps;
+		}
+		if (!overlaps)
+			continue;
+
+		wlr_box_closest_point(&box, ref.x, ref.y, &x, &y);
+		dist = (x - ref.x) * (x - ref.x) + (y - ref.y) * (y - ref.y);
+
+		if ((distmode == NEAREST) ? dist < best_metric : dist > best_metric) {
+			best_metric = dist;
+			best = vout;
+		}
 	}
-	return NULL;
+	return best;
 }
 
 static void
@@ -1487,14 +1459,19 @@ focusvout(const Arg *arg)
 	if (!origin_vout)
 		return;
 
-	target_vout = voutneighbor(origin_vout, arg->i);
+	target_vout = voutneighbor(origin_vout, arg->i, NEAREST);
 	if (!target_vout && nmons) {
 		do /* don't switch to disabled mons */
 			target_mon = dirtomon(arg->i);
 		while (target_mon && !target_mon->wlr_output->enabled && i++ < nmons);
 
-		if (target_mon && target_mon != selmon)
+		if (target_mon && target_mon != selmon) {
 			target_vout = focusedvout(target_mon);
+			if (wl_list_length(&target_mon->vouts) > 1) {
+				target_vout = voutneighbor(target_vout,
+						arg->i ^ (WLR_DIRECTION_LEFT | WLR_DIRECTION_UP), FARTHEST);
+			}
+		}
 	}
 
 	if (!target_vout || target_vout == origin_vout)
@@ -2338,7 +2315,7 @@ moveworkspace(const Arg *arg)
 	if (!selmon || !(active = MON_FOCUS_WS(selmon)))
 		return;
 	origin_vout = active->vout ? active->vout : focusedvout(selmon);
-	target_vout = voutneighbor(origin_vout, arg->i);
+	target_vout = voutneighbor(origin_vout, arg->i, NEAREST);
 	if (target_vout) {
 		target = target_vout->mon;
 	} else {
