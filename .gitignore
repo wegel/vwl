@@ -10,3 +10,4 @@ vwlctl
 .ccls-cache
 config.h
 config.local.mk
+compile_commands.json
