@@ -52,7 +52,7 @@ jobs:
             libpango1.0-dev \
             libpixman-1-dev \
             libwayland-dev \
-            libwlroots-0.19-dev \
+            libwlroots-0.20-dev \
             libxcb-icccm4-dev \
             libxcb1-dev \
             libxkbcommon-dev \
