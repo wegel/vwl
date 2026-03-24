@@ -98,6 +98,7 @@ struct Client {
 		struct wlr_xwayland_surface *xwayland;
 	} surface;
 	struct wlr_xdg_toplevel_decoration_v1 *decoration;
+	struct wlr_ext_foreign_toplevel_handle_v1 *foreign_toplevel;
 	struct wl_listener commit;
 	struct wl_listener map;
 	struct wl_listener maximize;
