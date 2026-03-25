@@ -126,6 +126,9 @@ void destroypointerconstraint(struct wl_listener *listener, void *data);
 void destroykeyboardgroup(struct wl_listener *listener, void *data);
 void debugstate(const Arg *arg);
 static Monitor *dirtomon(enum wlr_direction dir);
+static int invertdir(enum wlr_direction dir);
+static VirtualOutput *voutonmonitor(
+		Monitor *mon, enum wlr_direction dir, enum DistanceMode distmode, struct wlr_box ref);
 static VirtualOutput *voutneighbor(VirtualOutput *from, enum wlr_direction dir, enum DistanceMode distmode);
 void focusclient(Client *c, int lift);
 void focusvout(const Arg *arg);
@@ -158,7 +161,7 @@ void quit(const Arg *arg);
 void requeststartdrag(struct wl_listener *listener, void *data);
 void requestmonstate(struct wl_listener *listener, void *data);
 static void resize(Client *c, struct wlr_box geo, int interact);
-static void run(char *startup_cmd);
+static void run(const char *startup_cmd);
 void setcursor(struct wl_listener *listener, void *data);
 void setcursorshape(struct wl_listener *listener, void *data);
 static void setfullscreen(Client *c, int fullscreen);
@@ -1247,6 +1250,17 @@ destroynotify(struct wl_listener *listener, void *data)
 	free(c);
 }
 
+int
+invertdir(enum wlr_direction dir)
+{
+	int inverter = 0;
+	if (dir & (WLR_DIRECTION_LEFT | WLR_DIRECTION_RIGHT))
+		inverter |= (WLR_DIRECTION_LEFT | WLR_DIRECTION_RIGHT);
+	if (dir & (WLR_DIRECTION_DOWN | WLR_DIRECTION_UP))
+		inverter |= (WLR_DIRECTION_DOWN | WLR_DIRECTION_UP);
+	return dir ^ inverter;
+}
+
 Monitor *
 dirtomon(enum wlr_direction dir)
 {
@@ -1256,33 +1270,23 @@ dirtomon(enum wlr_direction dir)
 	if ((next = wlr_output_layout_adjacent_output(
 			     output_layout, dir, selmon->wlr_output, selmon->monitor_area.x, selmon->monitor_area.y)))
 		return next->data;
-	if ((next = wlr_output_layout_farthest_output(output_layout, dir ^ (WLR_DIRECTION_LEFT | WLR_DIRECTION_RIGHT),
-			     selmon->wlr_output, selmon->monitor_area.x, selmon->monitor_area.y)))
+	if ((next = wlr_output_layout_farthest_output(output_layout, invertdir(dir), selmon->wlr_output,
+			     selmon->monitor_area.x, selmon->monitor_area.y)))
 		return next->data;
 	return selmon;
 }
 
 static VirtualOutput *
-voutneighbor(VirtualOutput *from, enum wlr_direction dir, enum DistanceMode distmode)
+voutonmonitor(Monitor *mon, enum wlr_direction dir, enum DistanceMode distmode, struct wlr_box ref)
 {
-	struct wlr_box ref;
 	VirtualOutput *best = NULL, *vout;
 	double best_metric = (distmode == NEAREST) ? DBL_MAX : DBL_MIN;
 
-	if (!from || !from->mon || !dir)
-		return NULL;
-	ref = (from->layout_geom.width > 0 && from->layout_geom.height > 0) ? from->layout_geom
-									    : from->mon->window_area;
-	if (wlr_box_empty(&ref))
-		return NULL;
-
-	wl_list_for_each(vout, &from->mon->vouts, link) {
+	wl_list_for_each(vout, &mon->vouts, link) {
 		struct wlr_box box;
 		double x, y, dist;
 		bool overlaps = false;
 
-		if (vout == from)
-			continue;
 		box = (vout->layout_geom.width > 0 && vout->layout_geom.height > 0) ? vout->layout_geom
 										    : vout->mon->window_area;
 		if (wlr_box_empty(&box))
@@ -1300,8 +1304,9 @@ voutneighbor(VirtualOutput *from, enum wlr_direction dir, enum DistanceMode dist
 		if (dir & WLR_DIRECTION_DOWN) {
 			overlaps = box.y >= ref.y + ref.height || overlaps;
 		}
-		if (!overlaps)
+		if (!overlaps) {
 			continue;
+		}
 
 		wlr_box_closest_point(&box, ref.x, ref.y, &x, &y);
 		dist = (x - ref.x) * (x - ref.x) + (y - ref.y) * (y - ref.y);
@@ -1312,6 +1317,27 @@ voutneighbor(VirtualOutput *from, enum wlr_direction dir, enum DistanceMode dist
 		}
 	}
 	return best;
+}
+
+static VirtualOutput *
+voutneighbor(VirtualOutput *from, enum wlr_direction dir, enum DistanceMode distmode)
+{
+	struct wlr_box ref;
+	VirtualOutput *vout;
+
+	if (!from || !from->mon || !dir)
+		return NULL;
+
+	ref = (from->layout_geom.width > 0 && from->layout_geom.height > 0) ? from->layout_geom
+									    : from->mon->window_area;
+	if (wlr_box_empty(&ref))
+		return NULL;
+
+	vout = voutonmonitor(from->mon, dir, distmode, ref);
+	if (vout == from) {
+		return NULL;
+	}
+	return vout;
 }
 
 static void
@@ -1450,31 +1476,47 @@ focusvout(const Arg *arg)
 {
 	int i = 0, nmons = wl_list_length(&mons);
 	Monitor *target_mon = NULL;
-	VirtualOutput *origin_vout, *target_vout;
+	VirtualOutput *target_vout;
 
-	if (!selmon || !arg || !arg->i)
+	if (!selvout || !arg || !arg->i)
 		return;
 
-	origin_vout = focusedvout(selmon);
-	if (!origin_vout)
-		return;
-
-	target_vout = voutneighbor(origin_vout, arg->i, NEAREST);
-	if (!target_vout && nmons) {
+	target_vout = voutneighbor(selvout, arg->i, NEAREST);
+	if (!target_vout) {
 		do /* don't switch to disabled mons */
 			target_mon = dirtomon(arg->i);
 		while (target_mon && !target_mon->wlr_output->enabled && i++ < nmons);
 
-		if (target_mon && target_mon != selmon) {
-			target_vout = focusedvout(target_mon);
-			if (wl_list_length(&target_mon->vouts) > 1) {
-				target_vout = voutneighbor(target_vout,
-						arg->i ^ (WLR_DIRECTION_LEFT | WLR_DIRECTION_UP), FARTHEST);
+		if (target_mon) {
+			/* We use 1px off the edge of target_mon as a reference to then
+			 * search into the opposite direction, i.e. if moving left
+			 * results in switching the monitor we have to find the
+			 * right-most vout on that monitor. Start from left of left edge
+			 * going farthest to the right.*/
+			struct wlr_box ref = target_mon->window_area;
+			switch (arg->i) {
+			case WLR_DIRECTION_RIGHT:
+				ref.x = target_mon->window_area.x + target_mon->window_area.width + 1;
+				ref.width = 0;
+				break;
+			case WLR_DIRECTION_LEFT:
+				ref.x = target_mon->window_area.x - 1;
+				ref.width = 0;
+				break;
+			case WLR_DIRECTION_DOWN:
+				ref.y = target_mon->window_area.y + target_mon->window_area.height + 1;
+				ref.height = 0;
+				break;
+			case WLR_DIRECTION_UP:
+				ref.y = target_mon->window_area.y - 1;
+				ref.height = 0;
+				break;
 			}
+			target_vout = voutonmonitor(target_mon, invertdir(arg->i), FARTHEST, ref);
 		}
 	}
 
-	if (!target_vout || target_vout == origin_vout)
+	if (!target_vout || target_vout == selvout)
 		return;
 
 	ipc_focus_virtual_output(target_vout);
@@ -1847,7 +1889,7 @@ resize(Client *c, struct wlr_box geo, int interact)
 }
 
 void
-run(char *startup_cmd)
+run(const char *startup_cmd)
 {
 	/* Add a Unix socket to the Wayland display. */
 	const char *socket = wl_display_add_socket_auto(dpy);
