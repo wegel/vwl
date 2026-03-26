@@ -64,7 +64,7 @@ vwlctl set-workspace 3
 
 ## Dependencies
 
-- `wlroots 0.19`
+- `wlroots 0.20`
 - `wayland-server`
 - `xkbcommon`
 - `libinput`
@@ -171,6 +171,28 @@ static const char *screenshotclipboardcmd[] = { "sh", "-c",
 /* ... */
 { 0,     XKB_KEY_Print, spawn, {.v = screenshotcmd} },
 { MODKEY, XKB_KEY_Print, spawn, {.v = screenshotclipboardcmd} },
+```
+
+### Window Sharing
+
+`~/.config/vwl/run`
+
+```sh
+export XDG_CURRENT_DESKTOP=vwl:wlroots
+dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
+systemctl --user restart xdg-desktop-portal.service xdg-desktop-portal-wlr.service >/dev/null 2>&1 &
+```
+
+This lets the portal services bind to the current `vwl` session.
+
+Optional `xdg-desktop-portal-wlr` chooser override:
+
+`~/.config/xdg-desktop-portal-wlr/vwl`
+
+```ini
+[screencast]
+chooser_type=dmenu
+chooser_cmd=wofi -d --prompt='Select a source to share:' -L 15
 ```
 
 ## Status
