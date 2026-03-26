@@ -18,6 +18,7 @@ LDLIBS    = `$(PKG_CONFIG) --libs $(PKGS)` $(WLR_LIBS) -lm $(LIBS)
 TOOLCFLAGS = -I. $(DWLDEVCFLAGS) $(CFLAGS)
 CLANG_FORMAT ?= clang-format
 FORMAT_SRCS = client.h ipc.c ipc.h plumbing.c util.c util.h vwl.c vwl.h vwlctl.c
+FORMAT_SRCS += share.c share.h tabhdr.c tabhdr.h
 
 all: vwl vwlctl
 
@@ -27,13 +28,15 @@ format:
 format-check:
 	$(CLANG_FORMAT) --dry-run --Werror -style=file $(FORMAT_SRCS)
 
-vwl: vwl.o plumbing.o util.o ipc.o
-	$(CC) vwl.o plumbing.o util.o ipc.o $(DWLCFLAGS) $(LDFLAGS) $(LDLIBS) -o $@
+vwl: vwl.o plumbing.o util.o ipc.o share.o tabhdr.o
+	$(CC) vwl.o plumbing.o util.o ipc.o share.o tabhdr.o $(DWLCFLAGS) $(LDFLAGS) $(LDLIBS) -o $@
 vwl.o: vwl.c vwl.h client.h config.h config.mk cursor-shape-v1-protocol.h \
-	pointer-constraints-unstable-v1-protocol.h wlr-layer-shell-unstable-v1-protocol.h \
+	pointer-constraints-unstable-v1-protocol.h share.h tabhdr.h wlr-layer-shell-unstable-v1-protocol.h \
 	wlr-output-power-management-unstable-v1-protocol.h xdg-shell-protocol.h ipc.h
-plumbing.o: plumbing.c vwl.h ipc.h util.h config.h
+plumbing.o: plumbing.c vwl.h ipc.h share.h util.h config.h
 ipc.o: ipc.c vwl.h ipc.h util.h
+share.o: share.c vwl.h share.h util.h
+tabhdr.o: tabhdr.c vwl.h tabhdr.h util.h
 util.o: util.c util.h
 
 vwlctl: vwlctl.o util.o
@@ -81,7 +84,7 @@ clean:
 dist: clean
 	mkdir -p vwl-$(VERSION)
 	cp -R .clang-format .clang-format-ignore LICENSE* Makefile CHANGELOG.md README.md client.h config.def.h \
-		config.mk docs ipc.c ipc.h protocols vwl.c vwl.h vwlctl.c util.c util.h vwl.desktop VWL_FEATURES.md \
+		config.mk docs ipc.c ipc.h protocols share.c share.h tabhdr.c tabhdr.h vwl.c vwl.h vwlctl.c util.c util.h vwl.desktop VWL_FEATURES.md \
 		vwl-$(VERSION)
 	tar -caf vwl-$(VERSION).tar.gz vwl-$(VERSION)
 	rm -rf vwl-$(VERSION)
