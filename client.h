@@ -215,6 +215,36 @@ client_get_title(Client *c)
 }
 
 static inline int
+client_is_float_type(Client *c)
+{
+#ifdef XWAYLAND
+	if (client_is_x11(c)) {
+		struct wlr_xwayland_surface *surface = c->surface.xwayland;
+
+		if (surface->parent || surface->modal)
+			return 1;
+
+		if (wlr_xwayland_surface_has_window_type(surface, WLR_XWAYLAND_NET_WM_WINDOW_TYPE_DIALOG) ||
+				wlr_xwayland_surface_has_window_type(surface, WLR_XWAYLAND_NET_WM_WINDOW_TYPE_SPLASH) ||
+				wlr_xwayland_surface_has_window_type(
+						surface, WLR_XWAYLAND_NET_WM_WINDOW_TYPE_TOOLBAR) ||
+				wlr_xwayland_surface_has_window_type(surface, WLR_XWAYLAND_NET_WM_WINDOW_TYPE_UTILITY))
+			return 1;
+
+		return 0;
+	}
+#endif
+
+	{
+		struct wlr_xdg_toplevel *toplevel = c->surface.xdg->toplevel;
+		struct wlr_xdg_toplevel_state state = toplevel->current;
+		return toplevel->parent ||
+		       (state.min_width != 0 && state.min_height != 0 &&
+				       (state.min_width == state.max_width || state.min_height == state.max_height));
+	}
+}
+
+static inline int
 client_is_rendered_on_mon(Client *c, Monitor *m)
 {
 	/* This is needed for when you don't want to check formal assignment,

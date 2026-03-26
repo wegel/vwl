@@ -58,6 +58,7 @@ void tabmove(const Arg *arg);
 void setmfact(const Arg *arg);
 void zoom(const Arg *arg);
 void togglefullscreen(const Arg *arg);
+void moveresize(const Arg *arg);
 void toggletabbed(const Arg *arg);
 void setlayout(const Arg *arg);
 void focusvout(const Arg *arg);
@@ -105,6 +106,8 @@ Workspace *selws;
 VirtualOutput *selvout;
 KeyboardGroup *kb_group;
 unsigned int cursor_mode;
+Client *grabc;
+int grabcx, grabcy;
 int locked;
 void *exclusive_focus;
 CursorPhysical cursor_phys;
@@ -357,6 +360,22 @@ buttonpress(struct wl_listener *listener, void *data)
 		}
 		break;
 	case WL_POINTER_BUTTON_STATE_RELEASED:
+		if (!locked && cursor_mode != CurNormal && cursor_mode != CurPressed) {
+			wlr_cursor_set_xcursor(cursor, cursor_mgr, "default");
+			cursor_mode = CurNormal;
+			selmon = xytomon(cursor->x, cursor->y);
+			if (selmon) {
+				VirtualOutput *hover_vout = voutat(selmon, cursor->x, cursor->y);
+				if (hover_vout) {
+					selmon->focus_vout = hover_vout;
+					selvout = hover_vout;
+					if (hover_vout->ws)
+						setworkspace(grabc, hover_vout->ws);
+				}
+			}
+			grabc = NULL;
+			return;
+		}
 		cursor_mode = CurNormal;
 		break;
 	}
