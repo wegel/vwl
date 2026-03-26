@@ -35,6 +35,8 @@
 #include <wlr/types/wlr_data_device.h>
 #include <wlr/types/wlr_drm.h>
 #include <wlr/types/wlr_export_dmabuf_v1.h>
+#include <wlr/types/wlr_ext_image_capture_source_v1.h>
+#include <wlr/types/wlr_ext_image_copy_capture_v1.h>
 #include <wlr/types/wlr_fractional_scale_v1.h>
 #include <wlr/types/wlr_gamma_control_v1.h>
 #include <wlr/types/wlr_idle_inhibit_v1.h>
@@ -97,6 +99,9 @@
 /* function declarations */
 static void applybounds(Client *c, struct wlr_box *bbox);
 static void applyrules(Client *c);
+static void createextforeign(Client *c);
+static bool ensureimagesource(Client *c);
+static void updateactivationenv(bool include_display);
 void arrange(Monitor *m);
 void axisnotify(struct wl_listener *listener, void *data);
 void buttonpress(struct wl_listener *listener, void *data);
@@ -199,6 +204,9 @@ static Workspace *wsfindfree(void);
 static VirtualOutput *createvout(Monitor *m, const char *name);
 static void destroyvout(VirtualOutput *vout);
 VirtualOutput *focusedvout(Monitor *m);
+static void destroyextforeign(Client *c);
+static void imagesourcedestroy(struct wl_listener *listener, void *data);
+static void handlenewforeigntoplevelcapturerequest(struct wl_listener *listener, void *data);
 static void wsactivate(VirtualOutput *vout, Workspace *ws, int focus_change);
 static void wsattach(VirtualOutput *vout, Workspace *ws);
 static Workspace *wsfirst(VirtualOutput *vout);
@@ -218,6 +226,8 @@ static void cursorwarptovout(VirtualOutput *vout);
 /* Map from ZWLR_LAYER_SHELL_* constants to Lyr* enum */
 
 static struct wlr_xdg_activation_v1 *activation;
+static struct wlr_ext_foreign_toplevel_list_v1 *foreign_toplevel_list;
+static struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1 *foreign_toplevel_capture_mgr;
 static struct wlr_xdg_decoration_manager_v1 *xdg_decoration_mgr;
 extern struct wlr_idle_notifier_v1 *idle_notifier;
 extern struct wlr_idle_inhibit_manager_v1 *idle_inhibit_mgr;
@@ -230,6 +240,8 @@ static struct wlr_output_power_manager_v1 *power_mgr;
 
 static struct wlr_pointer_constraints_v1 *pointer_constraints;
 static struct wlr_relative_pointer_manager_v1 *relative_pointer_mgr;
+
+struct wl_listener foreign_toplevel_capture_request = {.notify = handlenewforeigntoplevelcapturerequest};
 
 static struct wlr_scene_rect *root_bg;
 static struct wlr_session_lock_manager_v1 *session_lock_mgr;
@@ -346,6 +358,121 @@ applyrules(Client *c)
 	if (!ws)
 		ws = wsbyid(DEFAULT_WORKSPACE_ID);
 	setworkspace(c, ws);
+}
+
+static void
+createextforeign(Client *c)
+{
+	struct wlr_ext_foreign_toplevel_handle_v1_state state;
+
+	if (!c || c->ext_foreign_toplevel || !foreign_toplevel_list)
+		return;
+
+	state = (struct wlr_ext_foreign_toplevel_handle_v1_state){
+			.app_id = client_get_appid(c),
+			.title = client_get_title(c),
+	};
+	c->ext_foreign_toplevel = wlr_ext_foreign_toplevel_handle_v1_create(foreign_toplevel_list, &state);
+	if (c->ext_foreign_toplevel)
+		c->ext_foreign_toplevel->data = c;
+}
+
+static void
+destroyextforeign(Client *c)
+{
+	if (!c || !c->ext_foreign_toplevel)
+		return;
+
+	wlr_ext_foreign_toplevel_handle_v1_destroy(c->ext_foreign_toplevel);
+	c->ext_foreign_toplevel = NULL;
+}
+
+static void
+updateactivationenv(bool include_display)
+{
+	pid_t pid;
+	int exit_status = -1;
+	int status;
+	char *const base_argv[] = {
+			"dbus-update-activation-environment",
+			"--systemd",
+			"WAYLAND_DISPLAY",
+			"XDG_CURRENT_DESKTOP",
+			NULL,
+	};
+	char *const display_argv[] = {
+			"dbus-update-activation-environment",
+			"--systemd",
+			"WAYLAND_DISPLAY",
+			"XDG_CURRENT_DESKTOP",
+			"DISPLAY",
+			NULL,
+	};
+	char *const *argv = base_argv;
+
+	if (include_display && getenv("DISPLAY"))
+		argv = display_argv;
+
+	if ((pid = fork()) < 0) {
+		wlr_log(WLR_ERROR, "failed to fork dbus-update-activation-environment");
+		return;
+	}
+	if (pid == 0) {
+		execvp(argv[0], argv);
+		_exit(127);
+	}
+	if (waitpid(pid, &status, 0) < 0) {
+		wlr_log(WLR_ERROR, "failed to wait for dbus-update-activation-environment");
+		return;
+	}
+	if (WIFEXITED(status))
+		exit_status = WEXITSTATUS(status);
+	if (!WIFEXITED(status) || exit_status != 0)
+		wlr_log(WLR_ERROR, "dbus-update-activation-environment exited with status %d", exit_status);
+}
+
+static bool
+ensureimagesource(Client *c)
+{
+	if (!c || c->image_capture_source)
+		return c && c->image_capture_source;
+	if (!c->scene_surface)
+		return false;
+
+	c->image_capture_source = wlr_ext_image_capture_source_v1_create_with_scene_node(
+			&c->scene_surface->node, event_loop, alloc, drw);
+	if (!c->image_capture_source)
+		return false;
+
+	LISTEN(&c->image_capture_source->events.destroy, &c->image_capture_source_destroy, imagesourcedestroy);
+	return true;
+}
+
+static void
+imagesourcedestroy(struct wl_listener *listener, void *data)
+{
+	Client *c = wl_container_of(listener, c, image_capture_source_destroy);
+	(void)data;
+
+	wl_list_remove(&c->image_capture_source_destroy.link);
+	wl_list_init(&c->image_capture_source_destroy.link);
+	c->image_capture_source = NULL;
+}
+
+static void
+handlenewforeigntoplevelcapturerequest(struct wl_listener *listener, void *data)
+{
+	struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request *request = data;
+	Client *c;
+	(void)listener;
+
+	c = request->toplevel_handle ? request->toplevel_handle->data : NULL;
+	if (!c || !c->scene_surface || !client_surface(c)->mapped)
+		return;
+	if (!ensureimagesource(c))
+		return;
+	if (!wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request_accept(request, c->image_capture_source))
+		wlr_log(WLR_ERROR, "failed to accept foreign toplevel capture request");
 }
 
 struct TabTextBuffer {
@@ -1226,6 +1353,12 @@ destroynotify(struct wl_listener *listener, void *data)
 {
 	/* Called when the xdg_toplevel is destroyed. */
 	Client *c = wl_container_of(listener, c, destroy);
+	if (c->image_capture_source) {
+		wl_list_remove(&c->image_capture_source_destroy.link);
+		wl_list_init(&c->image_capture_source_destroy.link);
+		c->image_capture_source = NULL;
+	}
+	destroyextforeign(c);
 	wl_list_remove(&c->destroy.link);
 	wl_list_remove(&c->set_title.link);
 	wl_list_remove(&c->fullscreen.link);
@@ -1662,6 +1795,7 @@ mapnotify(struct wl_listener *listener, void *data)
 	/* Insert this client into client lists. */
 	wl_list_insert(clients.prev, &c->link);
 	wl_list_insert(&fstack, &c->flink);
+	createextforeign(c);
 
 	/* Set initial workspace and focus:
 	 * for clients with a parent, use the same workspace and monitor as parent.
@@ -1703,8 +1837,7 @@ maximizenotify(struct wl_listener *listener, void *data)
 	 * protocol version
 	 * wlr_xdg_surface_schedule_configure() is used to send an empty reply. */
 	Client *c = wl_container_of(listener, c, maximize);
-	if (c->surface.xdg->initialized && wl_resource_get_version(c->surface.xdg->toplevel->resource) <
-							   XDG_TOPLEVEL_WM_CAPABILITIES_SINCE_VERSION)
+	if (c->surface.xdg->initialized && wl_resource_get_version(c->surface.xdg->toplevel->resource) < 5)
 		wlr_xdg_surface_schedule_configure(c->surface.xdg);
 }
 
@@ -1854,12 +1987,15 @@ run(char *startup_cmd)
 	if (!socket)
 		die("startup: display_add_socket_auto");
 	setenv("WAYLAND_DISPLAY", socket, 1);
+	setenv("XDG_CURRENT_DESKTOP", "vwl:wlroots", 1);
 	ipc_init();
 
 	/* Start the backend. This will enumerate outputs and inputs, become the DRM
 	 * master, etc */
 	if (!wlr_backend_start(backend))
 		die("startup: backend_start");
+
+	updateactivationenv(false);
 
 	/* Now that the socket exists and the backend is started, run the startup command */
 	if (startup_cmd) {
@@ -2114,6 +2250,11 @@ setup(void)
 	wlr_fractional_scale_manager_v1_create(dpy, 1);
 	wlr_presentation_create(dpy, backend, 2);
 	wlr_alpha_modifier_v1_create(dpy);
+	wlr_ext_image_copy_capture_manager_v1_create(dpy, 1);
+	wlr_ext_output_image_capture_source_manager_v1_create(dpy, 1);
+	foreign_toplevel_list = wlr_ext_foreign_toplevel_list_v1_create(dpy, 1);
+	foreign_toplevel_capture_mgr = wlr_ext_foreign_toplevel_image_capture_source_manager_v1_create(dpy, 1);
+	wl_signal_add(&foreign_toplevel_capture_mgr->events.new_request, &foreign_toplevel_capture_request);
 
 	/* Initializes the interface used to implement urgency hints */
 	activation = wlr_xdg_activation_v1_create(dpy);
@@ -2481,6 +2622,7 @@ unmapnotify(struct wl_listener *listener, void *data)
 {
 	/* Called when the surface is unmapped, and should no longer be shown. */
 	Client *c = wl_container_of(listener, c, unmap);
+	destroyextforeign(c);
 
 	if (client_is_unmanaged(c)) {
 		if (c == exclusive_focus) {
@@ -2628,6 +2770,14 @@ updatetitle(struct wl_listener *listener, void *data)
 	Monitor *m = CLIENT_MON(c);
 	VirtualOutput *vout = CLIENT_VOUT(c);
 	struct wlr_box area = {0};
+
+	if (c->ext_foreign_toplevel) {
+		struct wlr_ext_foreign_toplevel_handle_v1_state state = {
+				.app_id = client_get_appid(c),
+				.title = client_get_title(c),
+		};
+		wlr_ext_foreign_toplevel_handle_v1_update_state(c->ext_foreign_toplevel, &state);
+	}
 
 	if (c == focustop(c->mon))
 		updateipc();
@@ -3342,15 +3492,21 @@ void
 xwaylandready(struct wl_listener *listener, void *data)
 {
 	struct wlr_xcursor *xcursor;
+	struct wlr_xcursor_image *image;
+	struct wlr_buffer *buffer;
 
 	/* assign the one and only seat */
 	wlr_xwayland_set_seat(xwayland, seat);
 
 	/* Set the default XWayland cursor to match the rest of vwl. */
-	if ((xcursor = wlr_xcursor_manager_get_xcursor(cursor_mgr, "default", 1)))
-		wlr_xwayland_set_cursor(xwayland, xcursor->images[0]->buffer, xcursor->images[0]->width * 4,
-				xcursor->images[0]->width, xcursor->images[0]->height, xcursor->images[0]->hotspot_x,
-				xcursor->images[0]->hotspot_y);
+	if ((xcursor = wlr_xcursor_manager_get_xcursor(cursor_mgr, "default", 1)) && xcursor->image_count > 0) {
+		image = xcursor->images[0];
+		buffer = wlr_xcursor_image_get_buffer(image);
+		if (buffer)
+			wlr_xwayland_set_cursor(xwayland, buffer, image->hotspot_x, image->hotspot_y);
+	}
+
+	updateactivationenv(true);
 }
 #endif
 
