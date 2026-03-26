@@ -217,5 +217,6 @@ static const Key keys[] = {
 
 
 static const Button buttons[] = {
-	{ 0, 0, NULL, {0} },
+	{ MODKEY, BTN_LEFT,  moveresize, {.ui = CurMove} },
+	{ MODKEY, BTN_RIGHT, moveresize, {.ui = CurResize} },
 };

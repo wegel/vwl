@@ -36,7 +36,7 @@
 	} while (0)
 
 /* enums */
-enum { CurNormal, CurPressed };							     /* cursor */
+enum { CurNormal, CurPressed, CurMove, CurResize };				     /* cursor */
 enum { XDGShell, LayerShell, X11 };						     /* client types */
 enum { LyrBg, LyrBottom, LyrTile, LyrTop, LyrFS, LyrOverlay, LyrBlock, NUM_LAYERS }; /* scene layers */
 enum { FS_NONE, FS_VIRTUAL, FS_MONITOR };					     /* fullscreen modes */
@@ -121,7 +121,7 @@ struct Client {
 #endif
 	unsigned int bw;
 	Workspace *ws;
-	int isurgent, isfullscreen;
+	int isfloating, isurgent, isfullscreen;
 	int fullscreen_mode;
 	uint32_t resize; /* configure serial of a pending resize */
 };
@@ -313,6 +313,8 @@ extern Workspace *selws;
 extern VirtualOutput *selvout;
 extern KeyboardGroup *kb_group;
 extern unsigned int cursor_mode;
+extern Client *grabc;
+extern int grabcx, grabcy;
 extern int locked;
 extern void *exclusive_focus;
 extern CursorPhysical cursor_phys;
