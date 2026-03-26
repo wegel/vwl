@@ -111,9 +111,8 @@ client_set_bounds(Client *c, int32_t width, int32_t height)
 	if (client_is_x11(c))
 		return 0;
 #endif
-	if (wl_resource_get_version(c->surface.xdg->toplevel->resource) >=
-					XDG_TOPLEVEL_CONFIGURE_BOUNDS_SINCE_VERSION &&
-			width >= 0 && height >= 0 && (c->bounds.width != width || c->bounds.height != height)) {
+	if (wl_resource_get_version(c->surface.xdg->toplevel->resource) >= 4 && width >= 0 && height >= 0 &&
+			(c->bounds.width != width || c->bounds.height != height)) {
 		c->bounds.width = width;
 		c->bounds.height = height;
 		return wlr_xdg_toplevel_set_bounds(c->surface.xdg->toplevel, width, height);

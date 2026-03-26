@@ -1,6 +1,7 @@
 #include <unistd.h>
 #include <wayland-server-core.h>
 #include <wlr/types/wlr_output.h>
+#include <wlr/types/wlr_ext_foreign_toplevel_list_v1.h>
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_seat.h>
 #include <wlr/types/wlr_xdg_shell.h>
@@ -79,6 +80,7 @@ typedef struct Rule Rule;
 typedef struct SessionLock SessionLock;
 typedef struct IPCOutput IPCOutput;
 typedef struct IPCManager IPCManager;
+struct wlr_ext_image_capture_source_v1;
 
 struct Client {
 	/* Must keep this field first */
@@ -88,6 +90,8 @@ struct Client {
 	struct wlr_scene_tree *scene;
 	struct wlr_scene_rect *border[4]; /* top, bottom, left, right */
 	struct wlr_scene_tree *scene_surface;
+	struct wlr_ext_foreign_toplevel_handle_v1 *ext_foreign_toplevel;
+	struct wlr_ext_image_capture_source_v1 *image_capture_source;
 	struct wl_list link;
 	struct wl_list flink;
 	struct wlr_box geom;   /* layout-relative, includes border */
@@ -103,6 +107,7 @@ struct Client {
 	struct wl_listener maximize;
 	struct wl_listener unmap;
 	struct wl_listener destroy;
+	struct wl_listener image_capture_source_destroy;
 	struct wl_listener set_title;
 	struct wl_listener fullscreen;
 	struct wl_listener set_decoration_mode;
