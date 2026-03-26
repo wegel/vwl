@@ -1,7 +1,15 @@
+#ifndef VWL_H
+#define VWL_H
+
+#include <errno.h>
+#include <signal.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <wayland-server-core.h>
 #include <wlr/types/wlr_output.h>
 #include <wlr/types/wlr_ext_foreign_toplevel_list_v1.h>
+#include <wlr/types/wlr_fractional_scale_v1.h>
+#include <wlr/types/wlr_output_management_v1.h>
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_seat.h>
 #include <wlr/types/wlr_xdg_shell.h>
@@ -43,7 +51,7 @@ enum { FS_NONE, FS_VIRTUAL, FS_MONITOR };					     /* fullscreen modes */
 enum TabHdrPos { TABHDR_TOP, TABHDR_BOTTOM };
 enum DistanceMode { NEAREST, FARTHEST };
 
-typedef struct {
+typedef struct TabTitleTransformRule {
 	const char *pattern;
 	const char *replacement;
 } TabTitleTransformRule;
@@ -411,3 +419,5 @@ void updatephys(Monitor *m);
 
 /* From client.h - might need to include this properly later */
 #include "client.h"
+
+#endif

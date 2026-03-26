@@ -45,6 +45,7 @@
 
 #include "vwl.h"
 #include "ipc.h"
+#include "share.h"
 #include "util.h"
 
 /* Forward declarations needed by config.h */
@@ -149,8 +150,6 @@ void destroydecoration(struct wl_listener *listener, void *data);
 void cursorwarptohint(void);
 void destroysessionlock(struct wl_listener *listener, void *data);
 void unlocksession(struct wl_listener *listener, void *data);
-extern struct wl_listener foreign_toplevel_capture_request;
-
 /* Forward declarations for event handler functions (currently in vwl.c, will be moved later) */
 void gpureset(struct wl_listener *listener, void *data);
 void updatemons(struct wl_listener *listener, void *data);
@@ -257,7 +256,7 @@ cleanuplisteners(void)
 	wl_list_remove(&request_start_drag.link);
 	wl_list_remove(&start_drag.link);
 	wl_list_remove(&new_session_lock.link);
-	wl_list_remove(&foreign_toplevel_capture_request.link);
+	share_cleanuplisteners();
 #ifdef XWAYLAND
 	wl_list_remove(&new_xwayland_surface.link);
 	wl_list_remove(&xwayland_ready.link);
