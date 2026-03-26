@@ -3,3 +3,4 @@ Name=VWL
 Comment=Minimal tiling Wayland compositor
 Exec=vwl
 Type=Application
+DesktopNames=vwl;wlroots;
