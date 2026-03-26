@@ -8,17 +8,14 @@ jobs:
   format:
     runs-on: ubuntu-latest
     container:
-      image: debian:sid
+      image: archlinux:base-devel
     steps:
       - uses: actions/checkout@v4
 
       - name: Install formatter
-        env:
-          DEBIAN_FRONTEND: noninteractive
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            clang-format \
+          pacman -Syu --noconfirm --needed \
+            clang \
             make
 
       - name: Check formatting
@@ -27,7 +24,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: debian:sid
+      image: archlinux:base-devel
     strategy:
       fail-fast: false
       matrix:
@@ -40,24 +37,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
-        env:
-          DEBIAN_FRONTEND: noninteractive
+      - name: Install repo dependencies
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            libcairo2-dev \
-            libinput-dev \
-            libpango1.0-dev \
-            libpixman-1-dev \
-            libwayland-dev \
-            libwlroots-0.19-dev \
-            libxcb-icccm4-dev \
-            libxcb1-dev \
-            libxkbcommon-dev \
-            pkg-config \
-            wayland-protocols
+          pacman -Syu --noconfirm --needed \
+            base-devel \
+            cairo \
+            git \
+            libinput \
+            libxkbcommon \
+            pango \
+            pixman \
+            pkgconf \
+            sudo \
+            wayland \
+            wayland-protocols \
+            wlroots0.20 \
+            xcb-util-wm
+
+      - name: Build xdg-desktop-portal-wlr-git from AUR
+        run: |
+          useradd -m builder
+          printf 'builder ALL=(ALL) NOPASSWD: ALL\n' >/etc/sudoers.d/builder
+          chmod 0440 /etc/sudoers.d/builder
+          install -d -o builder -g builder /tmp/aur
+          su - builder -c 'git clone https://aur.archlinux.org/xdg-desktop-portal-wlr-git.git /tmp/aur/xdg-desktop-portal-wlr-git'
+          su - builder -c 'cd /tmp/aur/xdg-desktop-portal-wlr-git && makepkg -si --noconfirm --needed'
 
       - name: Enable XWayland build
         if: matrix.xwayland == '1'
