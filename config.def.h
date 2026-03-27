@@ -84,14 +84,19 @@ static const MonitorRule monrules[] = {
  * Virtual output rules partition a physical monitor into named regions.
  * Coordinates are expressed in the monitor's pixel space before any transform
  * is applied. A width/height of 0 expands to the monitor's usable area.
+ * Workspaces listed here are attached to the vout at startup; the first one
+ * becomes the active workspace. If none are listed, the vout starts empty and
+ * the first new window on it will claim a free workspace.
  *
- * Example (uncomment to use) – split HDMI-A-1 into left/right halves:
- * { "HDMI-A-1", "left",  0,   0,  960, 1080, 0.55f, 1, &layouts[0], &layouts[1] },
- * { "HDMI-A-1", "right", 960,  0,  960, 1080, 0.55f, 1, &layouts[0], &layouts[1] },
+ * Example (uncomment to use) – split a 4K DP-1 into left/right halves:
+ * static const unsigned int dp1_left_ws[] = {1, 2, 3};
+ * static const unsigned int dp1_right_ws[] = {4, 5, 6};
+ * { "DP-1", "left",  0,    0, 1920, 2160, 0.55f, 1, &layouts[0], &layouts[1], dp1_left_ws,  LENGTH(dp1_left_ws) },
+ * { "DP-1", "right", 1920, 0, 1920, 2160, 0.55f, 1, &layouts[0], &layouts[1], dp1_right_ws, LENGTH(dp1_right_ws) },
  */
 static const VirtualOutputRule vorules[] = {
-	/* monitor  name     x    y    w    h    mfact  nmaster  primary layout   secondary layout */
-	{ NULL,    NULL,     0,   0,   0,   0,   0.55f, 1,       &layouts[0],     (LENGTH(layouts) > 1) ? &layouts[1] : &layouts[0] },
+	/* monitor  name     x    y    w    h    mfact  nmaster  primary layout   secondary layout  workspaces  count */
+	{ NULL,    NULL,     0,   0,   0,   0,   0.55f, 1,       &layouts[0],     (LENGTH(layouts) > 1) ? &layouts[1] : &layouts[0], NULL, 0 },
 };
 
 /* keyboard */

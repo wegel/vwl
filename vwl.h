@@ -34,7 +34,6 @@
 #define END(A) ((A) + LENGTH(A))
 #define WORKSPACE_COUNT 256
 #define WORKSPACE_NAME_LEN 32
-#define DEFAULT_WORKSPACE_ID 1
 #define LISTEN(E, L, H) wl_signal_add((E), ((L)->notify = (H), (L)))
 #define LISTEN_STATIC(E, H)                                       \
 	do {                                                      \
@@ -276,6 +275,8 @@ struct VirtualOutputRule {
 	int nmaster;
 	const Layout *lt_primary;
 	const Layout *lt_secondary;
+	const unsigned int *workspaces;
+	size_t workspace_count;
 };
 
 struct PointerConstraint {
