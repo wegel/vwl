@@ -89,10 +89,6 @@
 #include "tabhdr.h"
 #include "util.h"
 
-#if DEFAULT_WORKSPACE_ID >= WORKSPACE_COUNT
-#error "DEFAULT_WORKSPACE_ID must be less than WORKSPACE_COUNT"
-#endif
-
 /* function declarations */
 static void applybounds(Client *c, struct wlr_box *bbox);
 static void applyrules(Client *c);
@@ -195,6 +191,7 @@ static Workspace *wsfindfree(void);
 static VirtualOutput *createvout(Monitor *m, const char *name);
 static void destroyvout(VirtualOutput *vout);
 VirtualOutput *focusedvout(Monitor *m);
+static void attachvoutworkspaces(VirtualOutput *vout, const unsigned int *workspace_ids, size_t workspace_count);
 static void wsactivate(VirtualOutput *vout, Workspace *ws, int focus_change);
 static void wsattach(VirtualOutput *vout, Workspace *ws);
 static Workspace *wsfirst(VirtualOutput *vout);
@@ -328,6 +325,7 @@ applyrules(Client *c)
 	int i;
 	const Rule *r;
 	Monitor *mon = selmon, *m;
+	VirtualOutput *target_vout = NULL;
 	Workspace *ws = NULL;
 
 	appid = client_get_appid(c);
@@ -346,21 +344,27 @@ applyrules(Client *c)
 	}
 	if (!mon)
 		mon = selmon;
+	if (mon)
+		target_vout = focusedvout(mon);
 	if (workspace_id < WORKSPACE_COUNT)
 		ws = wsbyid(workspace_id);
+	if (ws && target_vout && !ws->vout)
+		wsattach(target_vout, ws);
 	if (!ws && mon)
 		ws = MON_FOCUS_WS(mon);
-	if (ws && mon && ws->vout && ws->vout->mon != mon) {
-		VirtualOutput *target_vout = focusedvout(mon);
-		if (target_vout)
-			wsmoveto(ws, target_vout);
-	}
+	if (ws && target_vout && ws->vout && ws->vout->mon != mon)
+		wsmoveto(ws, target_vout);
 	if (!ws && selmon)
 		ws = MON_FOCUS_WS(selmon);
 	if (!ws)
 		ws = selws;
-	if (!ws)
-		ws = wsbyid(DEFAULT_WORKSPACE_ID);
+	if (!ws && target_vout) {
+		ws = wsfindfree();
+		if (ws) {
+			wsattach(target_vout, ws);
+			wsactivate(target_vout, ws, 0);
+		}
+	}
 	setworkspace(c, ws);
 }
 
@@ -678,6 +682,7 @@ createmon(struct wl_listener *listener, void *data)
 			};
 			strncpy(new_vout->ltsymbol, new_vout->lt[new_vout->sellt]->symbol, LENGTH(new_vout->ltsymbol));
 			new_vout->ltsymbol[LENGTH(new_vout->ltsymbol) - 1] = '\0';
+			attachvoutworkspaces(new_vout, vr->workspaces, vr->workspace_count);
 		} else {
 			new_vout = createvout(m, NULL);
 		}
@@ -688,13 +693,13 @@ createmon(struct wl_listener *listener, void *data)
 		first_vout = firstvout(m);
 
 	if (first) {
-		Workspace *default_ws = &workspaces[DEFAULT_WORKSPACE_ID];
 		if (!vt_recovery_mode) {
-			if (first_vout && !default_ws->vout)
-				wsattach(first_vout, default_ws);
-			if (first_vout)
-				wsactivate(first_vout, default_ws, 0);
-			selws = default_ws;
+			wl_list_for_each(vout, &m->vouts, link) {
+				Workspace *first_ws = wsfirst(vout);
+				if (first_ws)
+					wsactivate(vout, first_ws, 0);
+			}
+			selws = first_vout ? first_vout->ws : NULL;
 		} else {
 			selws = NULL;
 		}
@@ -702,12 +707,6 @@ createmon(struct wl_listener *listener, void *data)
 	} else if (!vt_recovery_mode) {
 		wl_list_for_each(vout, &m->vouts, link) {
 			Workspace *first_ws = wsfirst(vout);
-			if (!first_ws) {
-				Workspace *unassigned = wsfindfree();
-				if (unassigned)
-					wsattach(vout, unassigned);
-				first_ws = wsfirst(vout);
-			}
 			if (first_ws)
 				wsactivate(vout, first_ws, 0);
 		}
@@ -1797,7 +1796,7 @@ setup(void)
 		ws->orphan_vout_name[0] = '\0';
 		ws->orphan_monitor_name[0] = '\0';
 	}
-	selws = &workspaces[DEFAULT_WORKSPACE_ID];
+	selws = NULL;
 
 	/* Autocreates a renderer, either Pixman, GLES2 or Vulkan for us. The user
 	 * can also specify a renderer using the WLR_RENDERER env var.
@@ -2811,10 +2810,34 @@ static Workspace *
 wsfindfree(void)
 {
 	unsigned int i;
-	for (i = 0; i < WORKSPACE_COUNT; i++)
+
+	for (i = 1; i < MIN(WORKSPACE_COUNT, 10); i++)
+		if (!workspaces[i].vout)
+			return &workspaces[i];
+	if (WORKSPACE_COUNT > 0 && !workspaces[0].vout)
+		return &workspaces[0];
+	for (i = 10; i < WORKSPACE_COUNT; i++)
 		if (!workspaces[i].vout)
 			return &workspaces[i];
 	return NULL;
+}
+
+static void
+attachvoutworkspaces(VirtualOutput *vout, const unsigned int *workspace_ids, size_t workspace_count)
+{
+	size_t i;
+
+	if (!vout || !workspace_ids)
+		return;
+
+	for (i = 0; i < workspace_count; i++) {
+		Workspace *ws;
+
+		if (workspace_ids[i] >= WORKSPACE_COUNT)
+			continue;
+		ws = &workspaces[workspace_ids[i]];
+		wsattach(vout, ws);
+	}
 }
 
 static void
