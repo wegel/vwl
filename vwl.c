@@ -377,7 +377,7 @@ arrange(Monitor *m)
 	wl_list_for_each(c, &clients, link) {
 		if (c->mon == m) {
 			wlr_scene_node_set_enabled(&c->scene->node, VISIBLEON(c, m));
-			client_set_suspended(c, !VISIBLEON(c, m));
+			client_set_suspended(c, !VISIBLEON(c, m) && !share_is_captured(c));
 			if (!c->isfullscreen && !client_is_unmanaged(c))
 				wlr_scene_node_reparent(
 						&c->scene->node, c->isfloating ? layers[LyrTop] : layers[LyrTile]);
@@ -397,7 +397,7 @@ arrange(Monitor *m)
 			wl_list_for_each(c, &clients, link) {
 				if (c->ws == vout->ws && c != fs_client && !client_is_unmanaged(c)) {
 					wlr_scene_node_set_enabled(&c->scene->node, 0);
-					client_set_suspended(c, 1);
+					client_set_suspended(c, !share_is_captured(c));
 				}
 			}
 		}
@@ -2120,7 +2120,7 @@ tabbed(Monitor *m)
 			client_set_suspended(c, 0);
 		} else {
 			wlr_scene_node_set_enabled(&c->scene->node, 0);
-			client_set_suspended(c, 1);
+			client_set_suspended(c, !share_is_captured(c));
 		}
 	}
 
