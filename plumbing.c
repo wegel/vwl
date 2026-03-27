@@ -343,7 +343,8 @@ buttonpress(struct wl_listener *listener, void *data)
 	case WL_POINTER_BUTTON_STATE_PRESSED:
 		cursor_mode = CurPressed;
 		selmon = xytomon(cursor->x, cursor->y);
-		if (selmon) {
+		xytonode(cursor->x, cursor->y, NULL, &c, NULL, NULL, NULL);
+		if (selmon && !client_is_nonvirtual_fullscreen(c)) {
 			VirtualOutput *hover_vout = voutat(selmon, cursor->x, cursor->y);
 			if (hover_vout) {
 				selmon->focus_vout = hover_vout;
@@ -356,7 +357,6 @@ buttonpress(struct wl_listener *listener, void *data)
 			break;
 
 		/* Change focus if the button was _pressed_ over a client */
-		xytonode(cursor->x, cursor->y, NULL, &c, NULL, NULL, NULL);
 		if (c && (!client_is_unmanaged(c) || client_wants_focus(c)))
 			focusclient(c, 1);
 
