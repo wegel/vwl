@@ -2448,7 +2448,7 @@ tile(Monitor *m)
 void
 togglefullscreen(const Arg *arg)
 {
-	Client *sel = focustop(selmon);
+	Client *sel = focustopvout(selvout);
 	if (!sel)
 		return;
 	if (!sel->isfullscreen) {
