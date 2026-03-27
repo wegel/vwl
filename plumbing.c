@@ -79,6 +79,17 @@ VirtualOutput *focusedvout(Monitor *m);
 /* Static data */
 static const int layermap[] = {LyrBg, LyrBottom, LyrTop, LyrOverlay};
 
+typedef struct PopupSceneData PopupSceneData;
+struct PopupSceneData {
+	struct wlr_scene_tree *scene_tree;
+	struct wlr_scene_tree *image_capture_tree;
+	struct wl_listener destroy;
+};
+
+static struct wlr_scene_tree *popup_live_parent(struct wlr_surface *surface);
+static struct wlr_scene_tree *popup_image_capture_parent(struct wlr_surface *surface);
+static void destroypopupscenedata(struct wl_listener *listener, void *data);
+
 /* Global variable definitions that are shared between vwl.c and plumbing.c */
 struct wlr_pointer_constraint_v1 *active_constraint;
 struct wlr_scene_rect *locked_bg;
@@ -619,6 +630,70 @@ createpopup(struct wl_listener *listener, void *data)
 	LISTEN_STATIC(&popup->base->surface->events.commit, commitpopup);
 }
 
+static struct wlr_scene_tree *
+popup_live_parent(struct wlr_surface *surface)
+{
+	struct wlr_xdg_surface *xdg_surface;
+	PopupSceneData *popup_data;
+	Client *c;
+
+	if (!surface)
+		return NULL;
+
+	xdg_surface = wlr_xdg_surface_try_from_wlr_surface(surface);
+	if (!xdg_surface)
+		return surface->data;
+
+	if (xdg_surface->role == WLR_XDG_SURFACE_ROLE_POPUP) {
+		popup_data = xdg_surface->data;
+		return popup_data ? popup_data->scene_tree : NULL;
+	}
+
+	if (xdg_surface->role != WLR_XDG_SURFACE_ROLE_TOPLEVEL)
+		return NULL;
+
+	c = xdg_surface->data;
+	return c ? c->scene : NULL;
+}
+
+static struct wlr_scene_tree *
+popup_image_capture_parent(struct wlr_surface *surface)
+{
+	struct wlr_xdg_surface *xdg_surface;
+	PopupSceneData *popup_data;
+	Client *c;
+
+	if (!surface)
+		return NULL;
+
+	xdg_surface = wlr_xdg_surface_try_from_wlr_surface(surface);
+	if (!xdg_surface)
+		return NULL;
+
+	if (xdg_surface->role == WLR_XDG_SURFACE_ROLE_POPUP) {
+		popup_data = xdg_surface->data;
+		return popup_data ? popup_data->image_capture_tree : NULL;
+	}
+
+	if (xdg_surface->role != WLR_XDG_SURFACE_ROLE_TOPLEVEL)
+		return NULL;
+
+	c = xdg_surface->data;
+	return c ? c->image_capture_tree : NULL;
+}
+
+static void
+destroypopupscenedata(struct wl_listener *listener, void *data)
+{
+	PopupSceneData *popup_data = wl_container_of(listener, popup_data, destroy);
+	struct wlr_xdg_popup *popup = data;
+
+	if (popup && popup->base)
+		popup->base->data = NULL;
+	wl_list_remove(&popup_data->destroy.link);
+	free(popup_data);
+}
+
 int
 keybinding(uint32_t mods, xkb_keysym_t sym)
 {
@@ -1037,6 +1112,8 @@ commitpopup(struct wl_listener *listener, void *data)
 {
 	struct wlr_surface *surface = data;
 	struct wlr_xdg_popup *popup = wlr_xdg_popup_try_from_wlr_surface(surface);
+	struct wlr_scene_tree *scene_parent, *image_capture_parent;
+	PopupSceneData *popup_data;
 	LayerSurface *l = NULL;
 	Client *c = NULL;
 	struct wlr_box box;
@@ -1048,7 +1125,21 @@ commitpopup(struct wl_listener *listener, void *data)
 	type = toplevel_from_wlr_surface(popup->base->surface, &c, &l);
 	if (!popup->parent || type < 0)
 		return;
-	popup->base->surface->data = wlr_scene_xdg_surface_create(popup->parent->data, popup->base);
+	scene_parent = popup_live_parent(popup->parent);
+	if (!scene_parent)
+		return;
+	image_capture_parent = popup_image_capture_parent(popup->parent);
+
+	popup_data = ecalloc(1, sizeof(*popup_data));
+	popup_data->scene_tree = wlr_scene_xdg_surface_create(scene_parent, popup->base);
+	if (!popup_data->scene_tree) {
+		free(popup_data);
+		return;
+	}
+	if (image_capture_parent)
+		popup_data->image_capture_tree = wlr_scene_xdg_surface_create(image_capture_parent, popup->base);
+	popup->base->data = popup_data;
+	LISTEN(&popup->events.destroy, &popup_data->destroy, destroypopupscenedata);
 	if ((l && !l->mon) || (c && !c->mon)) {
 		wlr_xdg_popup_destroy(popup);
 		return;
