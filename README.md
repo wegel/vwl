@@ -185,6 +185,9 @@ systemctl --user restart xdg-desktop-portal.service xdg-desktop-portal-wlr.servi
 
 This lets the portal services bind to the current `vwl` session.
 
+Virtual-output sharing additionally requires a patched `xdg-desktop-portal-wlr`:
+`https://github.com/wegel/xdg-desktop-portal-wlr/tree/vwl-support`
+
 Optional `xdg-desktop-portal-wlr` chooser override:
 
 `~/.config/xdg-desktop-portal-wlr/vwl`
