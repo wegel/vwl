@@ -12,7 +12,7 @@ DWLDEVCFLAGS = -g -Wpedantic -Wall -Wextra -Wdeclaration-after-statement \
 	-Wfloat-conversion
 
 # CFLAGS / LDFLAGS
-PKGS      = wayland-server xkbcommon libinput cairo pangocairo $(XLIBS)
+PKGS      = wayland-server xkbcommon libinput cairo pangocairo pixman-1 $(XLIBS)
 DWLCFLAGS = `$(PKG_CONFIG) --cflags $(PKGS)` $(WLR_INCS) $(DWLCPPFLAGS) $(DWLDEVCFLAGS) $(CFLAGS)
 LDLIBS    = `$(PKG_CONFIG) --libs $(PKGS)` $(WLR_LIBS) -lm $(LIBS)
 TOOLCFLAGS = -I. $(DWLDEVCFLAGS) $(CFLAGS)
@@ -28,15 +28,21 @@ format:
 format-check:
 	$(CLANG_FORMAT) --dry-run --Werror -style=file $(FORMAT_SRCS)
 
-vwl: vwl.o plumbing.o util.o ipc.o share.o tabhdr.o
-	$(CC) vwl.o plumbing.o util.o ipc.o share.o tabhdr.o $(DWLCFLAGS) $(LDFLAGS) $(LDLIBS) -o $@
+vwl: vwl.o plumbing.o util.o ipc.o share.o tabhdr.o ext-foreign-toplevel-list-v1-protocol.o \
+	ext-image-capture-source-v1-protocol.o vwl-vout-image-capture-source-unstable-v1-protocol.o
+	$(CC) vwl.o plumbing.o util.o ipc.o share.o tabhdr.o ext-foreign-toplevel-list-v1-protocol.o \
+		ext-image-capture-source-v1-protocol.o \
+		vwl-vout-image-capture-source-unstable-v1-protocol.o $(DWLCFLAGS) $(LDFLAGS) $(LDLIBS) -o $@
 vwl.o: vwl.c vwl.h client.h config.h config.mk cursor-shape-v1-protocol.h \
 	pointer-constraints-unstable-v1-protocol.h share.h tabhdr.h wlr-layer-shell-unstable-v1-protocol.h \
 	wlr-output-power-management-unstable-v1-protocol.h xdg-shell-protocol.h ipc.h
 plumbing.o: plumbing.c vwl.h ipc.h share.h util.h config.h
 ipc.o: ipc.c vwl.h ipc.h util.h
-share.o: share.c vwl.h share.h util.h
+share.o: share.c vwl.h share.h util.h vwl-vout-image-capture-source-unstable-v1-protocol.h
 tabhdr.o: tabhdr.c vwl.h tabhdr.h util.h
+ext-foreign-toplevel-list-v1-protocol.o: ext-foreign-toplevel-list-v1-protocol.c ext-foreign-toplevel-list-v1-protocol.h
+ext-image-capture-source-v1-protocol.o: ext-image-capture-source-v1-protocol.c ext-image-capture-source-v1-protocol.h
+vwl-vout-image-capture-source-unstable-v1-protocol.o: vwl-vout-image-capture-source-unstable-v1-protocol.c vwl-vout-image-capture-source-unstable-v1-protocol.h
 util.o: util.c util.h
 
 vwlctl: vwlctl.o util.o
@@ -62,6 +68,24 @@ wlr-layer-shell-unstable-v1-protocol.h:
 wlr-output-power-management-unstable-v1-protocol.h:
 	$(WAYLAND_SCANNER) server-header \
 		protocols/wlr-output-power-management-unstable-v1.xml $@
+ext-foreign-toplevel-list-v1-protocol.h:
+	$(WAYLAND_SCANNER) server-header \
+		$(WAYLAND_PROTOCOLS)/staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml $@
+ext-foreign-toplevel-list-v1-protocol.c:
+	$(WAYLAND_SCANNER) private-code \
+		$(WAYLAND_PROTOCOLS)/staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml $@
+ext-image-capture-source-v1-protocol.h:
+	$(WAYLAND_SCANNER) server-header \
+		$(WAYLAND_PROTOCOLS)/staging/ext-image-capture-source/ext-image-capture-source-v1.xml $@
+ext-image-capture-source-v1-protocol.c:
+	$(WAYLAND_SCANNER) private-code \
+		$(WAYLAND_PROTOCOLS)/staging/ext-image-capture-source/ext-image-capture-source-v1.xml $@
+vwl-vout-image-capture-source-unstable-v1-protocol.h:
+	$(WAYLAND_SCANNER) server-header \
+		protocols/vwl-vout-image-capture-source-unstable-v1.xml $@
+vwl-vout-image-capture-source-unstable-v1-protocol.c:
+	$(WAYLAND_SCANNER) private-code \
+		protocols/vwl-vout-image-capture-source-unstable-v1.xml $@
 xdg-shell-protocol.h:
 	$(WAYLAND_SCANNER) server-header \
 		$(WAYLAND_PROTOCOLS)/stable/xdg-shell/xdg-shell.xml $@

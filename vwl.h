@@ -203,6 +203,8 @@ struct VirtualOutput {
 	struct wl_list workspaces;
 	Workspace *ws;
 	struct wlr_scene_tree *tabhdr;
+	struct wlr_ext_image_capture_source_v1 *image_capture_source;
+	struct wl_listener image_capture_source_destroy;
 	struct wlr_box layout_geom; /* layout-relative geometry */
 	struct wlr_box rule_geom;   /* rule geometry in physical pixels */
 	float mfact;
@@ -210,6 +212,9 @@ struct VirtualOutput {
 	const Layout *lt[2];
 	unsigned int sellt;
 	char ltsymbol[16];
+	struct {
+		struct wl_signal destroy;
+	} events;
 };
 
 struct MonitorPhysical {

@@ -2758,6 +2758,7 @@ createvout(Monitor *m, const char *name)
 	else
 		wl_list_insert(m->vouts.prev, &vout->link);
 	wl_list_init(&vout->workspaces);
+	wl_signal_init(&vout->events.destroy);
 	vout->tabhdr = wlr_scene_tree_create(layers[LyrTop]);
 	if (vout->tabhdr)
 		wlr_scene_node_set_enabled(&vout->tabhdr->node, 0);
@@ -2776,6 +2777,7 @@ destroyvout(VirtualOutput *vout)
 	m = vout->mon;
 	if (vout->ws)
 		wssave(vout);
+	wl_signal_emit_mutable(&vout->events.destroy, vout);
 	wl_list_for_each_safe(ws, tmp, &vout->workspaces, link) {
 		wl_list_remove(&ws->link);
 		wl_list_init(&ws->link);
