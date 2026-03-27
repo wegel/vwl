@@ -42,6 +42,38 @@ share_cleanuplisteners(void)
 	}
 }
 
+bool
+share_create_capture_scene(Client *c)
+{
+	if (!c || c->image_capture_scene)
+		return c && c->image_capture_scene;
+
+	c->image_capture_scene = wlr_scene_create();
+	if (!c->image_capture_scene)
+		return false;
+
+	if (client_is_x11(c)) {
+		c->image_capture_tree = wlr_scene_tree_create(&c->image_capture_scene->tree);
+		if (!c->image_capture_tree)
+			goto fail;
+		if (!wlr_scene_surface_create(c->image_capture_tree, client_surface(c)))
+			goto fail;
+		return true;
+	}
+
+	c->image_capture_tree = wlr_scene_xdg_surface_create(&c->image_capture_scene->tree, c->surface.xdg);
+	if (!c->image_capture_tree)
+		goto fail;
+
+	return true;
+
+fail:
+	wlr_scene_node_destroy(&c->image_capture_scene->tree.node);
+	c->image_capture_scene = NULL;
+	c->image_capture_tree = NULL;
+	return false;
+}
+
 void
 share_create_toplevel(Client *c)
 {
@@ -57,6 +89,17 @@ share_create_toplevel(Client *c)
 	c->ext_foreign_toplevel = wlr_ext_foreign_toplevel_handle_v1_create(foreign_toplevel_list, &state);
 	if (c->ext_foreign_toplevel)
 		c->ext_foreign_toplevel->data = c;
+}
+
+void
+share_destroy_capture_scene(Client *c)
+{
+	if (!c || !c->image_capture_scene)
+		return;
+
+	wlr_scene_node_destroy(&c->image_capture_scene->tree.node);
+	c->image_capture_scene = NULL;
+	c->image_capture_tree = NULL;
 }
 
 void
@@ -76,6 +119,12 @@ share_destroy(Client *c)
 
 	wlr_ext_foreign_toplevel_handle_v1_destroy(c->ext_foreign_toplevel);
 	c->ext_foreign_toplevel = NULL;
+}
+
+bool
+share_is_captured(Client *c)
+{
+	return c && c->image_capture_source && !wl_list_empty(&c->image_capture_source->resources);
 }
 
 void
@@ -98,11 +147,11 @@ ensureimagesource(Client *c)
 {
 	if (!c || c->image_capture_source)
 		return c && c->image_capture_source;
-	if (!c->scene_surface)
+	if (!c->image_capture_scene && !share_create_capture_scene(c))
 		return false;
 
 	c->image_capture_source = wlr_ext_image_capture_source_v1_create_with_scene_node(
-			&c->scene_surface->node, share_event_loop, share_allocator, share_renderer);
+			&c->image_capture_scene->tree.node, share_event_loop, share_allocator, share_renderer);
 	if (!c->image_capture_source)
 		return false;
 
@@ -129,7 +178,7 @@ handlenewforeigntoplevelcapturerequest(struct wl_listener *listener, void *data)
 	(void)listener;
 
 	c = request->toplevel_handle ? request->toplevel_handle->data : NULL;
-	if (!c || !c->scene_surface || !client_surface(c)->mapped)
+	if (!c || !c->image_capture_scene || !client_surface(c)->mapped)
 		return;
 	if (!ensureimagesource(c))
 		return;

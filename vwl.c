@@ -872,6 +872,7 @@ destroynotify(struct wl_listener *listener, void *data)
 {
 	/* Called when the xdg_toplevel is destroyed. */
 	Client *c = wl_container_of(listener, c, destroy);
+	share_destroy_capture_scene(c);
 	if (c->image_capture_source) {
 		wl_list_remove(&c->image_capture_source_destroy.link);
 		wl_list_init(&c->image_capture_source_destroy.link);
@@ -1293,6 +1294,8 @@ mapnotify(struct wl_listener *listener, void *data)
 	c->scene_surface = c->type == XDGShell ? wlr_scene_xdg_surface_create(c->scene, c->surface.xdg)
 					       : wlr_scene_subsurface_tree_create(c->scene, client_surface(c));
 	c->scene->node.data = c->scene_surface->node.data = c;
+	if (!share_create_capture_scene(c))
+		wlr_log(WLR_ERROR, "failed to create image capture scene for client");
 
 	client_get_geometry(c, &c->geom);
 
@@ -2218,6 +2221,7 @@ unmapnotify(struct wl_listener *listener, void *data)
 		cursor_mode = CurNormal;
 		grabc = NULL;
 	}
+	share_destroy_capture_scene(c);
 	share_destroy(c);
 
 	if (client_is_unmanaged(c)) {
