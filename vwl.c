@@ -98,7 +98,6 @@ static void applybounds(Client *c, struct wlr_box *bbox);
 static void applyrules(Client *c);
 void moveresize(const Arg *arg);
 static void setfloating(Client *c, int floating);
-static void updateactivationenv(bool include_display);
 void arrange(Monitor *m);
 void axisnotify(struct wl_listener *listener, void *data);
 void buttonpress(struct wl_listener *listener, void *data);
@@ -363,50 +362,6 @@ applyrules(Client *c)
 	if (!ws)
 		ws = wsbyid(DEFAULT_WORKSPACE_ID);
 	setworkspace(c, ws);
-}
-
-static void
-updateactivationenv(bool include_display)
-{
-	pid_t pid;
-	int exit_status = -1;
-	int status;
-	char *const base_argv[] = {
-			"dbus-update-activation-environment",
-			"--systemd",
-			"WAYLAND_DISPLAY",
-			"XDG_CURRENT_DESKTOP",
-			NULL,
-	};
-	char *const display_argv[] = {
-			"dbus-update-activation-environment",
-			"--systemd",
-			"WAYLAND_DISPLAY",
-			"XDG_CURRENT_DESKTOP",
-			"DISPLAY",
-			NULL,
-	};
-	char *const *argv = base_argv;
-
-	if (include_display && getenv("DISPLAY"))
-		argv = display_argv;
-
-	if ((pid = fork()) < 0) {
-		wlr_log(WLR_ERROR, "failed to fork dbus-update-activation-environment");
-		return;
-	}
-	if (pid == 0) {
-		execvp(argv[0], argv);
-		_exit(127);
-	}
-	if (waitpid(pid, &status, 0) < 0) {
-		wlr_log(WLR_ERROR, "failed to wait for dbus-update-activation-environment");
-		return;
-	}
-	if (WIFEXITED(status))
-		exit_status = WEXITSTATUS(status);
-	if (!WIFEXITED(status) || exit_status != 0)
-		wlr_log(WLR_ERROR, "dbus-update-activation-environment exited with status %d", exit_status);
 }
 
 void
@@ -1620,8 +1575,6 @@ run(char *startup_cmd)
 	 * master, etc */
 	if (!wlr_backend_start(backend))
 		die("startup: backend_start");
-
-	updateactivationenv(false);
 
 	/* Now that the socket exists and the backend is started, run the startup command */
 	if (startup_cmd) {
@@ -3144,8 +3097,6 @@ xwaylandready(struct wl_listener *listener, void *data)
 		if (buffer)
 			wlr_xwayland_set_cursor(xwayland, buffer, image->hotspot_x, image->hotspot_y);
 	}
-
-	updateactivationenv(true);
 }
 #endif
 
