@@ -92,8 +92,13 @@
 /* function declarations */
 static void applybounds(Client *c, struct wlr_box *bbox);
 static void applyrules(Client *c);
+static unsigned int borderwidth(Client *c);
+static const float *bordercolorfor(Client *c, int focused);
+static void updatebordercolor(Client *c, int focused);
+static void updateborderwidth(Client *c, int preserve_content);
 void moveresize(const Arg *arg);
 static void setfloating(Client *c, int floating);
+void togglefloating(const Arg *arg);
 void arrange(Monitor *m);
 void axisnotify(struct wl_listener *listener, void *data);
 void buttonpress(struct wl_listener *listener, void *data);
@@ -204,6 +209,7 @@ static Workspace *wsnext(VirtualOutput *vout, Workspace *exclude);
 static void wssave(VirtualOutput *vout);
 static void wsload(VirtualOutput *vout, Workspace *ws);
 static Client *focustopvout(VirtualOutput *vout);
+static Client *focustoptiledvout(VirtualOutput *vout);
 static void cursorwarptovout(VirtualOutput *vout);
 /* removed unused voname function */
 
@@ -855,7 +861,7 @@ createnotify(struct wl_listener *listener, void *data)
 	/* Allocate a Client for this surface */
 	c = toplevel->base->data = ecalloc(1, sizeof(*c));
 	c->surface.xdg = toplevel->base;
-	c->bw = borderpx;
+	c->bw = 0;
 
 	LISTEN(&toplevel->base->surface->events.commit, &c->commit, commitnotify);
 	LISTEN(&toplevel->base->surface->events.map, &c->map, mapnotify);
@@ -864,6 +870,59 @@ createnotify(struct wl_listener *listener, void *data)
 	LISTEN(&toplevel->events.request_fullscreen, &c->fullscreen, fullscreennotify);
 	LISTEN(&toplevel->events.request_maximize, &c->maximize, maximizenotify);
 	LISTEN(&toplevel->events.set_title, &c->set_title, updatetitle);
+}
+
+static unsigned int
+borderwidth(Client *c)
+{
+	if (!c || client_is_unmanaged(c) || c->isfullscreen)
+		return 0;
+	return c->isfloating ? floatborderpx : borderpx;
+}
+
+static const float *
+bordercolorfor(Client *c, int focused)
+{
+	if (c->isurgent)
+		return c->isfloating ? floaturgentcolor : urgentcolor;
+	if (focused)
+		return c->isfloating ? floatfocuscolor : focuscolor;
+	return c->isfloating ? floatbordercolor : bordercolor;
+}
+
+static void
+updatebordercolor(Client *c, int focused)
+{
+	if (!c || client_is_unmanaged(c))
+		return;
+	client_set_border_color(c, bordercolorfor(c, focused));
+}
+
+static void
+updateborderwidth(Client *c, int preserve_content)
+{
+	struct wlr_box geo;
+	int delta;
+	unsigned int new_bw;
+
+	if (!c)
+		return;
+	new_bw = borderwidth(c);
+	if (c->bw == new_bw)
+		return;
+	if (!c->mon || !client_surface(c)->mapped) {
+		c->bw = new_bw;
+		return;
+	}
+
+	geo = c->geom;
+	delta = (int)new_bw - (int)c->bw;
+	c->bw = new_bw;
+	if (preserve_content && delta != 0) {
+		geo.width += 2 * delta;
+		geo.height += 2 * delta;
+	}
+	resize(c, geo, 0);
 }
 
 void
@@ -1031,14 +1090,14 @@ focusclient(Client *c, int lift)
 			tabbed_mon = selvout->mon;
 			area = (selvout->layout_geom.width && selvout->layout_geom.height) ? selvout->layout_geom
 											   : selvout->mon->window_area;
-			tabhdr_update(selvout->mon, selvout, area, c);
+			tabhdr_update(selvout->mon, selvout, area, focustoptiledvout(selvout));
 		}
 		c->isurgent = 0;
 
 		/* Don't change border color if there is an exclusive focus or we are
 		 * handling a drag operation */
 		if (!exclusive_focus && !seat->drag)
-			client_set_border_color(c, focuscolor);
+			updatebordercolor(c, 1);
 	}
 
 	/* Deactivate old client if focus is changing */
@@ -1055,7 +1114,7 @@ focusclient(Client *c, int lift)
 			/* Don't deactivate old client if the new one wants focus, as this causes issues with winecfg
 		 * and probably other clients */
 		} else if (old_c && !client_is_unmanaged(old_c) && (!c || !client_wants_focus(c))) {
-			client_set_border_color(old_c, bordercolor);
+			updatebordercolor(old_c, 0);
 
 			client_activate_surface(old, 0);
 		}
@@ -1311,8 +1370,11 @@ mapnotify(struct wl_listener *listener, void *data)
 		goto unset_fullscreen;
 	}
 
+	c->isfloating = client_is_float_type(c);
+	c->bw = borderwidth(c);
+
 	for (i = 0; i < 4; i++) {
-		c->border[i] = wlr_scene_rect_create(c->scene, 0, 0, c->isurgent ? urgentcolor : bordercolor);
+		c->border[i] = wlr_scene_rect_create(c->scene, 0, 0, bordercolorfor(c, 0));
 		c->border[i]->node.data = c;
 	}
 
@@ -1325,7 +1387,6 @@ mapnotify(struct wl_listener *listener, void *data)
 	wl_list_insert(clients.prev, &c->link);
 	wl_list_insert(&fstack, &c->flink);
 	share_create_toplevel(c);
-	c->isfloating = client_is_float_type(c);
 
 	/* Set initial workspace and focus:
 	 * for clients with a parent, use the same workspace and monitor as parent.
@@ -1504,8 +1565,8 @@ moveresize(const Arg *arg)
 	layout = vout ? vout->lt[vout->sellt] : NULL;
 	if (layout && layout->arrange == tabbed && !grabc->isfloating)
 		return;
-
-	setfloating(grabc, 1);
+	if (!grabc->isfloating)
+		return;
 	switch (cursor_mode = arg->ui) {
 	case CurMove:
 		grabcx = (int)round(cursor->x) - grabc->geom.x;
@@ -1624,7 +1685,14 @@ setfloating(Client *c, int floating)
 {
 	Client *p = client_get_parent(c);
 
+	if (!c || client_is_unmanaged(c) || c->isfullscreen)
+		return;
+	if (c->isfloating == floating)
+		return;
+
 	c->isfloating = floating;
+	updateborderwidth(c, floating);
+	updatebordercolor(c, c == focustop(selmon));
 	if (!c->mon || !client_surface(c)->mapped)
 		return;
 	wlr_scene_node_reparent(&c->scene->node, layers[c->isfullscreen || (p && p->isfullscreen) ? LyrFS
@@ -1635,6 +1703,16 @@ setfloating(Client *c, int floating)
 }
 
 void
+togglefloating(const Arg *arg)
+{
+	Client *c = focustop(selmon);
+
+	if (!c || client_is_unmanaged(c) || c->isfullscreen)
+		return;
+	setfloating(c, !c->isfloating);
+}
+
+void
 setfullscreen(Client *c, int fullscreen)
 {
 	VirtualOutput *vout;
@@ -1642,8 +1720,9 @@ setfullscreen(Client *c, int fullscreen)
 	c->isfullscreen = fullscreen;
 	if (!c->mon || !client_surface(c)->mapped)
 		return;
-	c->bw = fullscreen ? 0 : borderpx;
 	client_set_fullscreen(c, fullscreen);
+	updateborderwidth(c, !fullscreen);
+	updatebordercolor(c, c == focustop(selmon));
 
 	if (fullscreen) {
 		c->prev = c->geom;
@@ -2090,7 +2169,7 @@ tabbed(Monitor *m)
 	if (!vout)
 		return;
 	area = (vout->layout_geom.width && vout->layout_geom.height) ? vout->layout_geom : m->window_area;
-	active = focustopvout(vout);
+	active = focustoptiledvout(vout);
 	header_height = tabhdr_header_height();
 
 	client_box = area;
@@ -2383,7 +2462,7 @@ updatetitle(struct wl_listener *listener, void *data)
 		area = vout->layout_geom;
 	else
 		area = m->window_area;
-	tabhdr_update(m, vout, area, focustopvout(vout));
+	tabhdr_update(m, vout, area, focustoptiledvout(vout));
 }
 
 void
@@ -2399,7 +2478,7 @@ urgent(struct wl_listener *listener, void *data)
 	updateipc();
 
 	if (client_surface(c)->mapped)
-		client_set_border_color(c, urgentcolor);
+		updatebordercolor(c, c == focustop(selmon));
 }
 
 void
@@ -2808,6 +2887,26 @@ focustopvout(VirtualOutput *vout)
 	return NULL;
 }
 
+static Client *
+focustoptiledvout(VirtualOutput *vout)
+{
+	Client *c;
+
+	if (!vout)
+		return NULL;
+	wl_list_for_each(c, &fstack, flink) {
+		if (c->ws == vout->ws && !client_is_unmanaged(c) && !c->isfloating &&
+				!client_is_nonvirtual_fullscreen(c))
+			return c;
+	}
+	wl_list_for_each(c, &clients, link) {
+		if (c->ws == vout->ws && !client_is_unmanaged(c) && !c->isfloating &&
+				!client_is_nonvirtual_fullscreen(c))
+			return c;
+	}
+	return NULL;
+}
+
 static Workspace *
 wsfindfree(void)
 {
@@ -3073,7 +3172,7 @@ createnotifyx11(struct wl_listener *listener, void *data)
 	c = xsurface->data = ecalloc(1, sizeof(*c));
 	c->surface.xwayland = xsurface;
 	c->type = X11;
-	c->bw = client_is_unmanaged(c) ? 0 : borderpx;
+	c->bw = 0;
 
 	/* Listen to the various events it can emit */
 	LISTEN(&xsurface->events.associate, &c->associate, associatex11);
@@ -3106,7 +3205,7 @@ sethints(struct wl_listener *listener, void *data)
 	updateipc();
 
 	if (c->isurgent && surface && surface->mapped)
-		client_set_border_color(c, urgentcolor);
+		updatebordercolor(c, c == focustop(selmon));
 }
 
 void

@@ -59,6 +59,7 @@ void tabmove(const Arg *arg);
 void setmfact(const Arg *arg);
 void zoom(const Arg *arg);
 void togglefullscreen(const Arg *arg);
+void togglefloating(const Arg *arg);
 void moveresize(const Arg *arg);
 void toggletabbed(const Arg *arg);
 void setlayout(const Arg *arg);

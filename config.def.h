@@ -9,10 +9,14 @@ static const int bypass_surface_visibility = 0;  /* 1 means idle inhibitors will
 static const int fullscreen_idle_inhibit   = 1;  /* 1 inhibits idle whenever a visible client is fullscreen */
 static const int passthrough_on_pointer_lock = 0; /* 1 passes keybindings to client when pointer is locked (eg QEMU grab) */
 static const unsigned int borderpx         = 1;  /* border pixel of windows */
+static const unsigned int floatborderpx    = 1;  /* border pixel of floating windows */
 static const float rootcolor[]             = COLOR(0x222222ff);
 static const float bordercolor[]           = COLOR(0x444444ff);
 static const float focuscolor[]            = COLOR(0x005577ff);
 static const float urgentcolor[]           = COLOR(0xff0000ff);
+static const float floatbordercolor[]      = COLOR(0x444444ff);
+static const float floatfocuscolor[]       = COLOR(0x005577ff);
+static const float floaturgentcolor[]      = COLOR(0xff0000ff);
 /* This conforms to the xdg-protocol. Set the alpha to zero to restore the old behavior */
 static const float fullscreen_bg[]         = {0.0f, 0.0f, 0.0f, 1.0f}; /* You can also use glsl colors */
 
@@ -186,6 +190,7 @@ static const Key keys[] = {
 	{ MODKEY,                    XKB_KEY_f,          togglefullscreen,{0} },
 	{ MODKEY,                    XKB_KEY_t,          toggletabbed,   {.v = &layouts[1]} },
 	{ MODKEY,                    XKB_KEY_space,      setlayout,      {0} },
+	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_space,      togglefloating, {0} },
 	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_E,          quit,           {0} },
 	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_D,          debugstate,     {0} },
 	{ MODKEY,                    XKB_KEY_comma,      focusvout,      {.i = WLR_DIRECTION_LEFT} },
