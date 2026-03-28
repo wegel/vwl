@@ -784,6 +784,12 @@ debugstate(const Arg *arg)
 	fprintf(f, "selmon: %s\n", selmon ? selmon->wlr_output->name : "(null)");
 	fprintf(f, "selvout: %s\n", selvout ? selvout->name : "(null)");
 	fprintf(f, "selws: %s (id=%u)\n", selws ? selws->name : "(null)", selws ? selws->id : 0);
+	fprintf(f, "hover_mon: %s\n", hover.mon && hover.mon->wlr_output ? hover.mon->wlr_output->name : "(null)");
+	fprintf(f, "hover_vout: %s\n", hover.vout ? hover.vout->name : "(null)");
+	fprintf(f, "hover_ws: %s (id=%u)\n", hover.ws ? hover.ws->name : "(null)", hover.ws ? hover.ws->id : 0);
+	fprintf(f, "hover_client: appid=\"%s\" title=\"%s\"\n",
+			hover.client ? client_get_appid(hover.client) : "(null)",
+			hover.client ? client_get_title(hover.client) : "(null)");
 	fprintf(f, "locked: %d\n", locked);
 	fprintf(f, "cursor_mode: %u\n", cursor_mode);
 
@@ -1501,9 +1507,11 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 		hover_vout = NULL;
 		if (hover_mon) {
 			hover_vout = voutat(hover_mon, cursor->x, cursor->y);
-			if (hover_vout)
-				hover_mon->focus_vout = hover_vout;
 		}
+		hover.mon = hover_mon;
+		hover.vout = hover_vout;
+		hover.ws = hover_vout ? hover_vout->ws : NULL;
+		xytonode(cursor->x, cursor->y, NULL, &hover.client, NULL, NULL, NULL);
 
 		cursorsync();
 
@@ -1511,7 +1519,10 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 		if (sloppyfocus) {
 			selmon = hover_mon;
 			if (selmon) {
+				if (hover_vout)
+					selmon->focus_vout = hover_vout;
 				selvout = hover_vout ? hover_vout : focusedvout(selmon);
+				selws = selvout ? selvout->ws : NULL;
 			}
 		}
 	}

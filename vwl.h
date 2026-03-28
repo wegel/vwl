@@ -73,6 +73,7 @@ typedef struct {
 typedef struct Monitor Monitor;
 typedef struct MonitorPhysical MonitorPhysical;
 typedef struct CursorPhysical CursorPhysical;
+typedef struct HoverState HoverState;
 typedef struct Workspace Workspace;
 typedef struct VirtualOutput VirtualOutput;
 typedef struct Client Client;
@@ -256,6 +257,13 @@ struct CursorPhysical {
 	Monitor *last_mon;
 };
 
+struct HoverState {
+	Monitor *mon;
+	VirtualOutput *vout;
+	Workspace *ws;
+	Client *client;
+};
+
 struct MonitorRule {
 	const char *name;
 	float scale;
@@ -327,6 +335,7 @@ extern Monitor *selmon;
 extern Workspace workspaces[WORKSPACE_COUNT];
 extern Workspace *selws;
 extern VirtualOutput *selvout;
+extern HoverState hover;
 extern KeyboardGroup *kb_group;
 extern unsigned int cursor_mode;
 extern Client *grabc;

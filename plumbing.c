@@ -117,6 +117,7 @@ Monitor *selmon;
 Workspace workspaces[WORKSPACE_COUNT];
 Workspace *selws;
 VirtualOutput *selvout;
+HoverState hover;
 KeyboardGroup *kb_group;
 unsigned int cursor_mode;
 Client *grabc;
