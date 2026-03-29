@@ -3093,6 +3093,7 @@ wsload(VirtualOutput *vout, Workspace *ws)
 	if (vout->sellt > 1)
 		vout->sellt = 0;
 	strncpy(vout->ltsymbol, vout->lt[vout->sellt]->symbol, LENGTH(vout->ltsymbol));
+	vout->ltsymbol[LENGTH(vout->ltsymbol) - 1] = '\0';
 }
 
 static Workspace *
