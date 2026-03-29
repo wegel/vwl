@@ -17,6 +17,9 @@ static const float urgentcolor[]           = COLOR(0xff0000ff);
 static const float floatbordercolor[]      = COLOR(0x444444ff);
 static const float floatfocuscolor[]       = COLOR(0x005577ff);
 static const float floaturgentcolor[]      = COLOR(0xff0000ff);
+static const int center_floating_windows   = 0;     /* center windows when toggled floating */
+static const float floating_window_width_factor = 1.0f;  /* 0 < factor <= 1 */
+static const float floating_window_height_factor = 1.0f; /* 0 < factor <= 1 */
 /* This conforms to the xdg-protocol. Set the alpha to zero to restore the old behavior */
 static const float fullscreen_bg[]         = {0.0f, 0.0f, 0.0f, 1.0f}; /* You can also use glsl colors */
 

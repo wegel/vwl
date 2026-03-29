@@ -96,6 +96,7 @@ static unsigned int borderwidth(Client *c);
 static const float *bordercolorfor(Client *c, int focused);
 static void updatebordercolor(Client *c, int focused);
 static void updateborderwidth(Client *c, int preserve_content);
+static void placefloating(Client *c);
 void moveresize(const Arg *arg);
 static void setfloating(Client *c, int floating);
 void togglefloating(const Arg *arg);
@@ -931,6 +932,43 @@ updateborderwidth(Client *c, int preserve_content)
 	resize(c, geo, 0);
 }
 
+static void
+placefloating(Client *c)
+{
+	struct wlr_box area, geo;
+	VirtualOutput *vout;
+	const Layout *layout;
+	int header_height;
+
+	if (!c || !c->mon || !client_surface(c)->mapped)
+		return;
+	vout = CLIENT_VOUT(c);
+	if (vout && vout->layout_geom.width > 0 && vout->layout_geom.height > 0)
+		area = vout->layout_geom;
+	else
+		area = c->mon->window_area;
+
+	layout = vout ? vout->lt[vout->sellt] : NULL;
+	header_height = tabhdr_header_height();
+	if (layout && layout->arrange == tabbed && header_height > 0 && area.height > header_height) {
+		area.height -= header_height;
+		if (tabhdr_position_value() == TABHDR_TOP)
+			area.y += header_height;
+	}
+
+	geo = c->geom;
+	if (floating_window_width_factor > 0.0f && floating_window_width_factor <= 1.0f)
+		geo.width = MAX((int)(2 * c->bw + 1), (int)roundf(area.width * floating_window_width_factor));
+	if (floating_window_height_factor > 0.0f && floating_window_height_factor <= 1.0f)
+		geo.height = MAX((int)(2 * c->bw + 1), (int)roundf(area.height * floating_window_height_factor));
+	if (center_floating_windows) {
+		geo.x = area.x + (area.width - geo.width) / 2;
+		geo.y = area.y + (area.height - geo.height) / 2;
+	}
+
+	resize(c, geo, 0);
+}
+
 void
 destroynotify(struct wl_listener *listener, void *data)
 {
@@ -1706,6 +1744,8 @@ setfloating(Client *c, int floating)
 	updatebordercolor(c, c == focustop(selmon));
 	if (!c->mon || !client_surface(c)->mapped)
 		return;
+	if (floating)
+		placefloating(c);
 	wlr_scene_node_reparent(&c->scene->node, layers[c->isfullscreen || (p && p->isfullscreen) ? LyrFS
 								 : c->isfloating		  ? LyrTop
 												  : LyrTile]);
