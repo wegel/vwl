@@ -19,6 +19,7 @@
 
 #include "vwl.h"
 #include "ipc.h"
+#include "spawnrules.h"
 #include "util.h"
 
 #define IPC_CLIENT_BUFFER 4096
@@ -533,6 +534,7 @@ handle_request(IPCClient *client, const char *line)
 	int got_type;
 	const char *error = NULL;
 	char *reply = NULL;
+	char command[2048];
 
 	if (json_get_int(line, "id", &id) < 0) {
 		return ipc_send_or_drop(client, build_error_reply(0, "invalid request id"));
@@ -598,6 +600,19 @@ handle_request(IPCClient *client, const char *line)
 
 		if (ipc_move_workspace_to_vout(ws, vout) < 0) {
 			return ipc_send_or_drop(client, build_error_reply(id, "failed to move workspace"));
+		}
+		return ipc_send_or_drop(client, build_ok_reply(id));
+	}
+
+	if (!strcmp(type, "spawn_on_workspace")) {
+		if (json_get_int(line, "workspace_id", &workspace_id) <= 0) {
+			return ipc_send_or_drop(client, build_error_reply(id, "missing workspace_id"));
+		}
+		if (json_get_string(line, "command", command, sizeof(command)) <= 0 || !command[0]) {
+			return ipc_send_or_drop(client, build_error_reply(id, "missing command"));
+		}
+		if (ipc_spawn_on_workspace((unsigned int)workspace_id, command) < 0) {
+			return ipc_send_or_drop(client, build_error_reply(id, "failed to spawn on workspace"));
 		}
 		return ipc_send_or_drop(client, build_ok_reply(id));
 	}

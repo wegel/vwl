@@ -3,6 +3,7 @@
 
 #include <errno.h>
 #include <signal.h>
+#include <time.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <wayland-server-core.h>
@@ -427,11 +428,13 @@ Monitor *monitorbyname(const char *name);
 Workspace *wsbyid(unsigned int id);
 VirtualOutput *voutbyid(unsigned int id);
 VirtualOutput *findvoutbyname(Monitor *m, const char *name);
+void setworkspace(Client *c, Workspace *ws);
 int ipc_set_workspace_by_id(unsigned int workspace_id);
 int ipc_focus_virtual_output(VirtualOutput *vout);
 int ipc_move_workspace_to_vout(Workspace *ws, VirtualOutput *vout);
 void configurephys(Monitor *m, const MonitorRule *match);
 void updatephys(Monitor *m);
+void wsattach(VirtualOutput *vout, Workspace *ws);
 
 /* From client.h - might need to include this properly later */
 #include "client.h"

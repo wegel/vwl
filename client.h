@@ -214,6 +214,20 @@ client_get_title(Client *c)
 	return c->surface.xdg->toplevel->title ? c->surface.xdg->toplevel->title : "broken";
 }
 
+static inline pid_t
+client_get_pid(Client *c)
+{
+#ifdef XWAYLAND
+	if (client_is_x11(c))
+		return c->surface.xwayland->pid;
+#endif
+	{
+		pid_t pid = 0;
+		wl_client_get_credentials(c->surface.xdg->client->client, &pid, NULL, NULL);
+		return pid;
+	}
+}
+
 static inline int
 client_is_float_type(Client *c)
 {
