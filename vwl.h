@@ -48,7 +48,6 @@ enum { XDGShell, LayerShell, X11 };						     /* client types */
 enum { LyrBg, LyrBottom, LyrTile, LyrTop, LyrFS, LyrOverlay, LyrBlock, NUM_LAYERS }; /* scene layers */
 enum { FS_NONE, FS_VIRTUAL, FS_MONITOR };					     /* fullscreen modes */
 enum TabHdrPos { TABHDR_TOP, TABHDR_BOTTOM };
-enum DistanceMode { NEAREST, FARTHEST };
 
 typedef struct TabTitleTransformRule {
 	const char *pattern;
