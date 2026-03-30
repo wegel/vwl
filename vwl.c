@@ -86,6 +86,7 @@
 #include "vwl.h"
 #include "ipc.h"
 #include "share.h"
+#include "spawnrules.h"
 #include "tabhdr.h"
 #include "util.h"
 
@@ -97,6 +98,7 @@ static const float *bordercolorfor(Client *c, int focused);
 static void updatebordercolor(Client *c, int focused);
 static void updateborderwidth(Client *c, int preserve_content);
 static void placefloating(Client *c);
+static pid_t spawn_argv(const char *const argv[]);
 void moveresize(const Arg *arg);
 static void setfloating(Client *c, int floating);
 void togglefloating(const Arg *arg);
@@ -202,7 +204,7 @@ static void destroyvout(VirtualOutput *vout);
 VirtualOutput *focusedvout(Monitor *m);
 static void attachvoutworkspaces(VirtualOutput *vout, const unsigned int *workspace_ids, size_t workspace_count);
 static void wsactivate(VirtualOutput *vout, Workspace *ws, int focus_change);
-static void wsattach(VirtualOutput *vout, Workspace *ws);
+void wsattach(VirtualOutput *vout, Workspace *ws);
 static Workspace *wsfirst(VirtualOutput *vout);
 static VirtualOutput *firstvout(Monitor *m);
 VirtualOutput *findvoutbyname(Monitor *m, const char *name);
@@ -1505,7 +1507,7 @@ mapnotify(struct wl_listener *listener, void *data)
 		if (!target_ws && p->mon)
 			target_ws = MON_FOCUS_WS(p->mon);
 		setworkspace(c, target_ws);
-	} else {
+	} else if (!spawnrules_apply(c)) {
 		applyrules(c);
 	}
 	if (vt_recovery_mode && c->ws)
@@ -1992,6 +1994,7 @@ setup(void)
 		ws->orphan_monitor_name[0] = '\0';
 	}
 	selws = NULL;
+	spawnrules_init();
 
 	/* Autocreates a renderer, either Pixman, GLES2 or Vulkan for us. The user
 	 * can also specify a renderer using the WLR_RENDERER env var.
@@ -2190,12 +2193,21 @@ setup(void)
 void
 spawn(const Arg *arg)
 {
-	if (fork() == 0) {
+	(void)spawn_argv((const char *const *)arg->v);
+}
+
+static pid_t
+spawn_argv(const char *const argv[])
+{
+	pid_t pid;
+
+	if ((pid = fork()) == 0) {
 		dup2(STDERR_FILENO, STDOUT_FILENO);
 		setsid();
-		execvp(((char **)arg->v)[0], (char **)arg->v);
-		die("vwl: execvp %s failed:", ((char **)arg->v)[0]);
+		execvp(((char **)argv)[0], (char **)argv);
+		die("vwl: execvp %s failed:", ((char **)argv)[0]);
 	}
+	return pid;
 }
 
 void
@@ -3128,7 +3140,7 @@ wsnext(VirtualOutput *vout, Workspace *exclude)
 	return NULL;
 }
 
-static void
+void
 wsattach(VirtualOutput *vout, Workspace *ws)
 {
 	VirtualOutput *old;

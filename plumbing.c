@@ -46,6 +46,7 @@
 #include "vwl.h"
 #include "ipc.h"
 #include "share.h"
+#include "spawnrules.h"
 #include "util.h"
 
 /* Forward declarations needed by config.h */
@@ -281,6 +282,7 @@ cleanup(void)
 {
 	cleanuplisteners();
 	ipc_finish();
+	spawnrules_finish();
 #ifdef XWAYLAND
 	wlr_xwayland_destroy(xwayland);
 	xwayland = NULL;

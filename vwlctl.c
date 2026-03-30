@@ -22,6 +22,7 @@ usage(FILE *fp)
 		    "  get-state\n"
 		    "  subscribe\n"
 		    "  set-workspace WORKSPACE_ID\n"
+		    "  spawn-on-workspace WORKSPACE_ID COMMAND\n"
 		    "  set-vout-focus (--vout-id ID | --output NAME --vout NAME)\n"
 		    "  move-workspace-to-vout WORKSPACE_ID (--vout-id ID | --output NAME --vout "
 		    "NAME)\n");
@@ -199,6 +200,17 @@ main(int argc, char *argv[])
 			die("vwlctl: set-workspace requires WORKSPACE_ID");
 		fprintf(request_fp, "{\"id\":1,\"type\":\"set_workspace\",\"workspace_id\":%s}", argv[argi]);
 		argi++;
+	} else if (!strcmp(cmd, "spawn-on-workspace")) {
+		if (argi >= argc)
+			die("vwlctl: spawn-on-workspace requires WORKSPACE_ID");
+		if (argi + 1 >= argc)
+			die("vwlctl: spawn-on-workspace requires COMMAND");
+		fprintf(request_fp, "{\"id\":1,\"type\":\"spawn_on_workspace\",\"workspace_id\":%s,\"command\":",
+				argv[argi]);
+		argi++;
+		json_write_escaped(request_fp, argv[argi]);
+		fputc('}', request_fp);
+		argi = argc;
 	} else if (!strcmp(cmd, "set-vout-focus") || !strcmp(cmd, "move-workspace-to-vout")) {
 		const char *workspace_id = NULL;
 		const char *output_name = NULL;
