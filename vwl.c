@@ -130,8 +130,9 @@ void destroykeyboardgroup(struct wl_listener *listener, void *data);
 void debugstate(const Arg *arg);
 static Monitor *dirtomon(enum wlr_direction dir);
 static int invertdir(enum wlr_direction dir);
-static VirtualOutput *voutonmonitor(Monitor *mon, enum wlr_direction dir, struct wlr_box ref);
-static VirtualOutput *voutneighbor(VirtualOutput *from, enum wlr_direction dir);
+static Monitor *dirtomonfrom(Monitor *from, enum wlr_direction dir);
+static VirtualOutput *voutonmonitor(Monitor *mon, enum wlr_direction dir, struct wlr_box ref, int require_overlap);
+static VirtualOutput *findvoutindir(VirtualOutput *from, enum wlr_direction dir);
 void focusclient(Client *c, int lift);
 void focusvout(const Arg *arg);
 void focusmon(const Arg *arg);
@@ -1018,24 +1019,31 @@ invertdir(enum wlr_direction dir)
 Monitor *
 dirtomon(enum wlr_direction dir)
 {
+	return dirtomonfrom(selmon, dir);
+}
+
+static Monitor *
+dirtomonfrom(Monitor *from, enum wlr_direction dir)
+{
 	struct wlr_output *next;
-	if (!wlr_output_layout_get(output_layout, selmon->wlr_output))
-		return selmon;
+	if (!from || !wlr_output_layout_get(output_layout, from->wlr_output))
+		return from;
 	if ((next = wlr_output_layout_adjacent_output(
-			     output_layout, dir, selmon->wlr_output, selmon->monitor_area.x, selmon->monitor_area.y)))
+			     output_layout, dir, from->wlr_output, from->monitor_area.x, from->monitor_area.y)))
 		return next->data;
-	if ((next = wlr_output_layout_farthest_output(output_layout, invertdir(dir), selmon->wlr_output,
-			     selmon->monitor_area.x, selmon->monitor_area.y)))
+	if ((next = wlr_output_layout_farthest_output(output_layout, invertdir(dir), from->wlr_output,
+			     from->monitor_area.x, from->monitor_area.y)))
 		return next->data;
-	return selmon;
+	return from;
 }
 
 static VirtualOutput *
-voutonmonitor(Monitor *mon, enum wlr_direction dir, struct wlr_box ref)
+voutonmonitor(Monitor *mon, enum wlr_direction dir, struct wlr_box ref, int require_overlap)
 {
 	VirtualOutput *best = NULL, *vout;
 	double ref_cx, ref_cy;
 	double best_metric = (dir == WLR_DIRECTION_LEFT || dir == WLR_DIRECTION_UP) ? -DBL_MAX : DBL_MAX;
+	double best_ortho = DBL_MAX;
 
 	/* Diagonal movements are not supported */
 	if (dir & (WLR_DIRECTION_LEFT | WLR_DIRECTION_RIGHT) && dir & (WLR_DIRECTION_UP | WLR_DIRECTION_DOWN))
@@ -1057,42 +1065,64 @@ voutonmonitor(Monitor *mon, enum wlr_direction dir, struct wlr_box ref)
 			overlaps = box.y < ref.y + ref.height && ref.y < box.y + box.height;
 		else
 			overlaps = box.x < ref.x + ref.width && ref.x < box.x + box.width;
-		if (!overlaps)
+		if (require_overlap && !overlaps)
 			continue;
 
 		cx = box.x + box.width / 2.0;
 		cy = box.y + box.height / 2.0;
 
 		if (dir & WLR_DIRECTION_LEFT) {
-			if (cx >= ref_cx || cx <= best_metric) {
+			double ortho = fabs(cy - ref_cy);
+			if (cx >= ref_cx ||
+					(!require_overlap &&
+							(ortho > best_ortho ||
+									(ortho == best_ortho && cx <= best_metric))) ||
+					(require_overlap && cx <= best_metric)) {
 				continue;
 			}
-			best_metric = cx, best = vout;
+			best_metric = cx, best_ortho = ortho, best = vout;
 		} else if (dir & WLR_DIRECTION_RIGHT) {
-			if (cx <= ref_cx || cx >= best_metric) {
+			double ortho = fabs(cy - ref_cy);
+			if (cx <= ref_cx ||
+					(!require_overlap &&
+							(ortho > best_ortho ||
+									(ortho == best_ortho && cx >= best_metric))) ||
+					(require_overlap && cx >= best_metric)) {
 				continue;
 			}
-			best_metric = cx, best = vout;
+			best_metric = cx, best_ortho = ortho, best = vout;
 		} else if (dir & WLR_DIRECTION_UP) {
-			if (cy >= ref_cy || cy <= best_metric) {
+			double ortho = fabs(cx - ref_cx);
+			if (cy >= ref_cy ||
+					(!require_overlap &&
+							(ortho > best_ortho ||
+									(ortho == best_ortho && cy <= best_metric))) ||
+					(require_overlap && cy <= best_metric)) {
 				continue;
 			}
-			best_metric = cy, best = vout;
+			best_metric = cy, best_ortho = ortho, best = vout;
 		} else if (dir & WLR_DIRECTION_DOWN) {
-			if (cy <= ref_cy || cy >= best_metric) {
+			double ortho = fabs(cx - ref_cx);
+			if (cy <= ref_cy ||
+					(!require_overlap &&
+							(ortho > best_ortho ||
+									(ortho == best_ortho && cy >= best_metric))) ||
+					(require_overlap && cy >= best_metric)) {
 				continue;
 			}
-			best_metric = cy, best = vout;
+			best_metric = cy, best_ortho = ortho, best = vout;
 		}
 	}
 	return best;
 }
 
 static VirtualOutput *
-voutneighbor(VirtualOutput *from, enum wlr_direction dir)
+findvoutindir(VirtualOutput *from, enum wlr_direction dir)
 {
 	struct wlr_box ref;
 	VirtualOutput *vout;
+	Monitor *target_mon;
+	struct wlr_box target_ref;
 
 	if (!from || !from->mon || !dir)
 		return NULL;
@@ -1101,11 +1131,27 @@ voutneighbor(VirtualOutput *from, enum wlr_direction dir)
 	if (wlr_box_empty(&ref))
 		return NULL;
 
-	vout = voutonmonitor(from->mon, dir, ref);
-	if (vout == from) {
+	vout = voutonmonitor(from->mon, dir, ref, 1);
+	if (vout && vout != from)
+		return vout;
+	target_mon = dirtomonfrom(from->mon, dir);
+	if (!target_mon)
 		return NULL;
-	}
-	return vout;
+	target_ref = !wlr_box_empty(&target_mon->window_area) ? target_mon->window_area : target_mon->monitor_area;
+	if (wlr_box_empty(&target_ref))
+		return NULL;
+	if (dir & WLR_DIRECTION_LEFT)
+		ref.x = target_ref.x + target_ref.width;
+	else if (dir & WLR_DIRECTION_RIGHT)
+		ref.x = target_ref.x - ref.width;
+	else if (dir & WLR_DIRECTION_UP)
+		ref.y = target_ref.y + target_ref.height;
+	else if (dir & WLR_DIRECTION_DOWN)
+		ref.y = target_ref.y - ref.height;
+	vout = voutonmonitor(target_mon, dir, ref, 1);
+	if (!vout)
+		vout = voutonmonitor(target_mon, dir, ref, 0);
+	return vout == from ? NULL : vout;
 }
 
 static void
@@ -1241,44 +1287,12 @@ focusmon(const Arg *arg)
 void
 focusvout(const Arg *arg)
 {
-	int i = 0, nmons = wl_list_length(&mons);
-	Monitor *target_mon = NULL;
 	VirtualOutput *target_vout;
 
 	if (!selvout || !arg || !arg->i)
 		return;
 
-	target_vout = voutneighbor(selvout, arg->i);
-	if (!target_vout) {
-		do /* don't switch to disabled mons */
-			target_mon = dirtomon(arg->i);
-		while (target_mon && !target_mon->wlr_output->enabled && i++ < nmons);
-
-		/* NOTE: we intentionally accept working on the same monitor as selmon
-		 * to allow for wrap-around also on a single-monitor setup */
-		if (target_mon) {
-			struct wlr_box ref = !wlr_box_empty(&selvout->layout_geom) ? selvout->layout_geom
-										   : selvout->mon->window_area;
-			struct wlr_box target_ref = !wlr_box_empty(&target_mon->window_area) ? target_mon->window_area
-											     : target_mon->monitor_area;
-			if (wlr_box_empty(&ref) || wlr_box_empty(&target_ref))
-				return;
-
-			/* Arificially position the current vout next to target_mon
-			 * such that moving in arg->i direction moves "into" that
-			 * monitor */
-			if (arg->i & WLR_DIRECTION_LEFT) {
-				ref.x = target_ref.x + target_ref.width;
-			} else if (arg->i & WLR_DIRECTION_RIGHT) {
-				ref.x = target_ref.x - ref.width;
-			} else if (arg->i & WLR_DIRECTION_UP) {
-				ref.y = target_ref.y + target_ref.height;
-			} else if (arg->i & WLR_DIRECTION_DOWN) {
-				ref.y = target_ref.y - ref.height;
-			}
-			target_vout = voutonmonitor(target_mon, arg->i, ref);
-		}
-	}
+	target_vout = findvoutindir(selvout, arg->i);
 
 	if (!target_vout || target_vout == selvout)
 		return;
@@ -2231,17 +2245,10 @@ moveworkspace(const Arg *arg)
 	if (!selmon || !(active = MON_FOCUS_WS(selmon)))
 		return;
 	origin_vout = active->vout ? active->vout : focusedvout(selmon);
-	target_vout = voutneighbor(origin_vout, arg->i);
-	if (target_vout) {
-		target = target_vout->mon;
-	} else {
-		target = dirtomon(arg->i);
-		if (!target || target == selmon)
-			return;
-		target_vout = focusedvout(target);
-		if (!target_vout)
-			return;
-	}
+	target_vout = findvoutindir(origin_vout, arg->i);
+	if (!target_vout)
+		return;
+	target = target_vout->mon;
 
 	focused = origin_vout ? focustopvout(origin_vout) : focustop(selmon);
 	warp_needed = target_vout != origin_vout;
