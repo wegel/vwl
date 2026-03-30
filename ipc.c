@@ -743,7 +743,8 @@ ipc_init(void)
 
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
-	strncpy(addr.sun_path, ipc_server.path, sizeof(addr.sun_path) - 1);
+	strncpy(addr.sun_path, ipc_server.path, sizeof(addr.sun_path));
+	addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';
 	unlink(ipc_server.path);
 	if (bind(ipc_server.listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
 		die("ipc: bind:");

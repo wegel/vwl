@@ -96,7 +96,8 @@ connect_socket(const char *path)
 
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
-	strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
+	strncpy(addr.sun_path, path, sizeof(addr.sun_path));
+	addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';
 	if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
 		die("vwlctl: connect %s:", path);
 
