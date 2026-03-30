@@ -2256,6 +2256,8 @@ moveworkspace(const Arg *arg)
 	selmon = target;
 	selvout = target_vout;
 	selws = target_vout->ws;
+	if (selmon)
+		selmon->focus_vout = target_vout;
 	if (focused)
 		focusclient(focused, 1);
 	else
