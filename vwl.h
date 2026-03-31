@@ -55,6 +55,11 @@ typedef struct TabTitleTransformRule {
 	const char *replacement;
 } TabTitleTransformRule;
 
+typedef struct SpawnWorkspaceArg {
+	unsigned int workspace_id;
+	const char *const *argv;
+} SpawnWorkspaceArg;
+
 /* type declarations */
 typedef union {
 	int i;

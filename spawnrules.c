@@ -25,6 +25,8 @@ static void prune_pending_spawns(void);
 static int pid_descends_from(pid_t pid, pid_t ancestor);
 static VirtualOutput *pending_spawn_target_vout(PendingSpawn *pending);
 static PendingSpawn *claim_pending_spawn(Client *c);
+static int add_pending_spawn(unsigned int workspace_id, pid_t pid);
+static pid_t spawn_argv(const char *const argv[]);
 static pid_t spawn_command(const char *command);
 
 void
@@ -167,6 +169,22 @@ spawnrules_apply(Client *c)
 }
 
 static pid_t
+spawn_argv(const char *const argv[])
+{
+	pid_t pid;
+
+	if (!argv || !argv[0])
+		return -1;
+	if ((pid = fork()) == 0) {
+		dup2(STDERR_FILENO, STDOUT_FILENO);
+		setsid();
+		execvp(((char **)argv)[0], (char **)argv);
+		die("vwl: execvp %s failed:", ((char **)argv)[0]);
+	}
+	return pid;
+}
+
+static pid_t
 spawn_command(const char *command)
 {
 	pid_t pid;
@@ -183,20 +201,38 @@ spawn_command(const char *command)
 }
 
 int
+spawnrules_spawn_on_workspace_argv(unsigned int workspace_id, const char *const argv[])
+{
+	pid_t pid;
+
+	if (!wsbyid(workspace_id) || !argv || !argv[0])
+		return -1;
+	pid = spawn_argv(argv);
+	if (pid <= 0)
+		return -1;
+	return add_pending_spawn(workspace_id, pid);
+}
+
+int
 ipc_spawn_on_workspace(unsigned int workspace_id, const char *command)
 {
-	PendingSpawn *pending;
-	VirtualOutput *vout;
 	pid_t pid;
 
 	if (!wsbyid(workspace_id) || !command || !command[0])
 		return -1;
-
 	/* For this spike, the IPC takes a single shell command string instead of
 	 * an argv array to keep the wire format and client-side encoding simple. */
 	pid = spawn_command(command);
 	if (pid <= 0)
 		return -1;
+	return add_pending_spawn(workspace_id, pid);
+}
+
+static int
+add_pending_spawn(unsigned int workspace_id, pid_t pid)
+{
+	PendingSpawn *pending;
+	VirtualOutput *vout;
 
 	pending = ecalloc(1, sizeof(*pending));
 	pending->pid = pid;

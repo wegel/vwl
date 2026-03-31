@@ -54,6 +54,8 @@ void tile(Monitor *m);
 void tabbed(Monitor *m);
 void *ecalloc(size_t nmemb, size_t size);
 void spawn(const Arg *arg);
+void spawn_on_current_workspace(const Arg *arg);
+void spawn_on_workspace(const Arg *arg);
 void killclient(const Arg *arg);
 void focusstack(const Arg *arg);
 void tabmove(const Arg *arg);
