@@ -173,6 +173,8 @@ static void setfullscreen(Client *c, int fullscreen);
 void setlayout(const Arg *arg);
 void setmfact(const Arg *arg);
 void setworkspace(Client *c, Workspace *ws);
+void spawn_on_current_workspace(const Arg *arg);
+void spawn_on_workspace(const Arg *arg);
 void setpsel(struct wl_listener *listener, void *data);
 void setsel(struct wl_listener *listener, void *data);
 static void setup(void);
@@ -2194,6 +2196,24 @@ void
 spawn(const Arg *arg)
 {
 	(void)spawn_argv((const char *const *)arg->v);
+}
+
+void
+spawn_on_current_workspace(const Arg *arg)
+{
+	if (!selws)
+		return;
+	(void)spawnrules_spawn_on_workspace_argv(selws->id, (const char *const *)arg->v);
+}
+
+void
+spawn_on_workspace(const Arg *arg)
+{
+	const SpawnWorkspaceArg *spawnarg = arg->v;
+
+	if (!spawnarg)
+		return;
+	(void)spawnrules_spawn_on_workspace_argv(spawnarg->workspace_id, spawnarg->argv);
 }
 
 static pid_t
