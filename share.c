@@ -554,6 +554,15 @@ imagesourcedestroy(struct wl_listener *listener, void *data)
 	wl_list_remove(&c->image_capture_source_destroy.link);
 	wl_list_init(&c->image_capture_source_destroy.link);
 	c->image_capture_source = NULL;
+
+	if (!c->mon || !client_surface(c) || !client_surface(c)->mapped)
+		return;
+
+	if (VISIBLEON(c, c->mon)) {
+		wlr_scene_node_set_enabled(&c->scene->node, 1);
+		client_set_suspended(c, 0);
+	}
+	wlr_output_schedule_frame(c->mon->wlr_output);
 }
 
 static void
