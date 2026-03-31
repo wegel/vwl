@@ -14,6 +14,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 #include <wayland-server-core.h>
+#include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_fractional_scale_v1.h>
 #include <wlr/types/wlr_output_management_v1.h>
 
@@ -192,6 +193,23 @@ json_write_box(FILE *fp, const struct wlr_box *box)
 	fprintf(fp, "{\"x\":%d,\"y\":%d,\"width\":%d,\"height\":%d}", box->x, box->y, box->width, box->height);
 }
 
+static const char *
+pointer_reveal_edge_name(int edge)
+{
+	switch (edge) {
+	case POINTER_REVEAL_EDGE_TOP:
+		return "top";
+	case POINTER_REVEAL_EDGE_BOTTOM:
+		return "bottom";
+	case POINTER_REVEAL_EDGE_LEFT:
+		return "left";
+	case POINTER_REVEAL_EDGE_RIGHT:
+		return "right";
+	default:
+		return NULL;
+	}
+}
+
 static void
 workspace_stats(Workspace *ws, unsigned int *count, int *urgent)
 {
@@ -215,6 +233,7 @@ build_snapshot(void)
 	size_t size = 0;
 	FILE *fp = open_memstream(&buf, &size);
 	Monitor *m;
+	Monitor *pointer_mon;
 	VirtualOutput *vout;
 	int i;
 
@@ -240,6 +259,24 @@ build_snapshot(void)
 		fprintf(fp, "%u", selws->id);
 	else
 		fputs("null", fp);
+
+	pointer_mon = cursor ? xytomon(cursor->x, cursor->y) : NULL;
+	fputs(",\"pointer\":{", fp);
+	fputs("\"output\":", fp);
+	if (pointer_mon && pointer_mon->wlr_output)
+		json_write_escaped(fp, pointer_mon->wlr_output->name);
+	else
+		fputs("null", fp);
+	fprintf(fp, ",\"reveal_hover\":%s", ipc_pointer_reveal_hover ? "true" : "false");
+	fputs(",\"reveal_edge\":", fp);
+	{
+		const char *edge_name = pointer_reveal_edge_name(ipc_pointer_reveal_edge);
+		if (edge_name)
+			json_write_escaped(fp, edge_name);
+		else
+			fputs("null", fp);
+	}
+	fputc('}', fp);
 
 	fputs(",\"outputs\":[", fp);
 	{

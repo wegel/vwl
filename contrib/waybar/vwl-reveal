@@ -1,0 +1,85 @@
+#!/bin/sh
+
+# Expects Waybar to start hidden; toggles visibility on reveal-edge state changes.
+visible=0
+pidfile="${XDG_RUNTIME_DIR:-/tmp}/vwl-waybar-reveal.pid"
+waybar_config="${WAYBAR_CONFIG:-$HOME/.config/waybar/config.jsonc}"
+reveal_edge="${VWL_REVEAL_EDGE:-}"
+
+if [ -f "$pidfile" ]; then
+	oldpid=$(cat "$pidfile" 2>/dev/null)
+	if [ -n "$oldpid" ] && kill -0 "$oldpid" 2>/dev/null; then
+		if ps -p "$oldpid" -o args= 2>/dev/null | grep -q "vwl-reveal"; then
+			exit 0
+		fi
+	fi
+fi
+echo "$$" > "$pidfile"
+cleanup() {
+	rm -f "$pidfile"
+}
+trap cleanup EXIT INT TERM
+
+if command -v vwlctl >/dev/null 2>&1; then
+	VWLCTL=vwlctl
+elif [ -x /var/home/wegel/work/perso/vwl/vwlctl ]; then
+	VWLCTL=/var/home/wegel/work/perso/vwl/vwlctl
+else
+	exit 0
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+	exit 0
+fi
+
+if [ -z "$reveal_edge" ] && [ -r "$waybar_config" ]; then
+	reveal_edge=$(sed -n 's/^[[:space:]]*"position"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$waybar_config" | head -n1)
+fi
+case "$reveal_edge" in
+top|bottom|left|right)
+	;;
+*)
+	reveal_edge=top
+	;;
+esac
+
+"$VWLCTL" subscribe \
+	| jq --unbuffered -r '
+		.state.pointer as $p
+		| if ($p.reveal_edge? != null) then
+			("edge:" + $p.reveal_edge)
+		  elif ($p.reveal_hover? != null) then
+			("hover:" + ($p.reveal_hover | tostring))
+		  else
+			empty
+		  end
+	' \
+	| while read -r state; do
+		case "$state" in
+		edge:*)
+			edge=${state#edge:}
+			if [ "$edge" = "$reveal_edge" ]; then
+				target=1
+			else
+				target=0
+			fi
+			;;
+		hover:true)
+			target=1
+			;;
+		hover:false)
+			target=0
+			;;
+		*)
+			continue
+			;;
+		esac
+
+		if [ "$target" -eq "$visible" ]; then
+			continue
+		fi
+
+		pkill -USR1 -x waybar >/dev/null 2>&1 || true
+		visible="$target"
+	done
+

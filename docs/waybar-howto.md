@@ -10,9 +10,15 @@ The IPC already exposes the data a bar needs:
 
 - focused output
 - active window title/appid
+- pointer reveal-hover state
+- pointer reveal edge (`top`/`bottom`/`left`/`right`)
 - physical outputs
 - virtual outputs
 - workspace to virtual-output mapping
+
+## Auto Hide/Reveal
+
+Use the helper at `contrib/waybar/vwl-reveal` for edge-hover hide/reveal integration with Waybar.
 
 ## Requirements
 
