@@ -90,9 +90,16 @@ Errors use:
 
 The snapshot/event state is structured around:
 
+- `pointer`: pointer location metadata for subscribers (for example reveal-hover state)
 - `outputs`: physical outputs, geometry, active/focused state, active window info
 - `virtual_outputs`: vout ids, names, workspace mapping, layout, regions
 - `workspaces`: flat workspace list with visibility/focus/assignment metadata
+
+`pointer` currently includes:
+
+- `output`: output name under the pointer (or `null`)
+- `reveal_hover`: compositor-provided hover state intended for bar/panel reveal automation
+- `reveal_edge`: `top`, `bottom`, `left`, `right`, or `null`
 
 Virtual outputs currently expose a single region, but the schema uses `regions[]` so it can represent spanning virtual outputs later without a schema break.
 

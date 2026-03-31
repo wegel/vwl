@@ -219,6 +219,8 @@ static void wsload(VirtualOutput *vout, Workspace *ws);
 static Client *focustopvout(VirtualOutput *vout);
 static Client *focustoptiledvout(VirtualOutput *vout);
 static void cursorwarptovout(VirtualOutput *vout);
+static int pointer_reveal_edge_for_cursor(Monitor *m, int current_edge);
+static void update_pointer_reveal_state(void);
 /* removed unused voname function */
 
 /* variables */
@@ -243,6 +245,8 @@ static struct wlr_session_lock_manager_v1 *session_lock_mgr;
 
 static struct wlr_box sgeom;
 static bool vt_recovery_mode = false; /* Track if we're recovering from VT switch */
+static const int pointer_reveal_trigger_px = 2;
+static const int pointer_reveal_hold_px = 40;
 
 /* Global event handlers are now in plumbing.c */
 extern struct wl_listener cursor_axis;
@@ -1545,6 +1549,71 @@ maximizenotify(struct wl_listener *listener, void *data)
 		wlr_xdg_surface_schedule_configure(c->surface.xdg);
 }
 
+static int
+pointer_reveal_edge_for_cursor(Monitor *m, int current_edge)
+{
+	double rel_x, rel_y;
+	double distances[4];
+	int edges[4];
+	double best = DBL_MAX;
+	int best_edge = POINTER_REVEAL_EDGE_NONE;
+	int i;
+
+	if (!m || !cursor || m->monitor_area.width <= 0 || m->monitor_area.height <= 0)
+		return POINTER_REVEAL_EDGE_NONE;
+
+	rel_x = cursor->x - m->monitor_area.x;
+	rel_y = cursor->y - m->monitor_area.y;
+	if (rel_x < 0.0 || rel_y < 0.0 || rel_x > m->monitor_area.width || rel_y > m->monitor_area.height)
+		return POINTER_REVEAL_EDGE_NONE;
+
+	distances[0] = rel_y;
+	distances[1] = m->monitor_area.height - rel_y;
+	distances[2] = rel_x;
+	distances[3] = m->monitor_area.width - rel_x;
+
+	edges[0] = POINTER_REVEAL_EDGE_TOP;
+	edges[1] = POINTER_REVEAL_EDGE_BOTTOM;
+	edges[2] = POINTER_REVEAL_EDGE_LEFT;
+	edges[3] = POINTER_REVEAL_EDGE_RIGHT;
+
+	for (i = 0; i < 4; i++) {
+		int edge = edges[i];
+		double threshold = (edge == current_edge) ? pointer_reveal_hold_px : pointer_reveal_trigger_px;
+		double d = distances[i];
+
+		if (d < 0.0 || d > threshold)
+			continue;
+		if (d < best || (d == best && edge == current_edge)) {
+			best = d;
+			best_edge = edge;
+		}
+	}
+
+	return best_edge;
+}
+
+static void
+update_pointer_reveal_state(void)
+{
+	Monitor *m;
+	int next_edge = POINTER_REVEAL_EDGE_NONE;
+	int next_hover = 0;
+
+	if (cursor) {
+		m = xytomon(cursor->x, cursor->y);
+		next_edge = pointer_reveal_edge_for_cursor(m, ipc_pointer_reveal_edge);
+	}
+	next_hover = next_edge != POINTER_REVEAL_EDGE_NONE;
+
+	if (next_hover == ipc_pointer_reveal_hover && next_edge == ipc_pointer_reveal_edge)
+		return;
+
+	ipc_pointer_reveal_hover = next_hover;
+	ipc_pointer_reveal_edge = next_edge;
+	updateipc();
+}
+
 void
 motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double dy, double dx_unaccel, double dy_unaccel)
 {
@@ -1586,6 +1655,7 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 		if (enable_physical_cursor_gap_jumps && prev_mon && cursor_mode == CurNormal && !seat->drag &&
 				(!active_constraint || active_constraint->type != WLR_POINTER_CONSTRAINT_V1_LOCKED) &&
 				cursorgap(prev_mon, prev_mm_x, prev_mm_y)) {
+			update_pointer_reveal_state();
 			return;
 		}
 
@@ -1602,8 +1672,10 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 					dy = sy_confined - sy;
 				}
 
-				if (active_constraint->type == WLR_POINTER_CONSTRAINT_V1_LOCKED)
+				if (active_constraint->type == WLR_POINTER_CONSTRAINT_V1_LOCKED) {
+					update_pointer_reveal_state();
 					return;
+				}
 			}
 		}
 
@@ -1645,6 +1717,7 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 						.height = grabc->geom.height},
 				1);
 		cursorsync();
+		update_pointer_reveal_state();
 		return;
 	} else if (cursor_mode == CurResize) {
 		resize(grabc,
@@ -1654,6 +1727,7 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 						.height = (int)round(cursor->y) - grabc->geom.y},
 				1);
 		cursorsync();
+		update_pointer_reveal_state();
 		return;
 	}
 
@@ -1665,6 +1739,7 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 
 	pointerfocus(c, surface, sx, sy, time);
 	cursorsync();
+	update_pointer_reveal_state();
 }
 
 void

@@ -121,6 +121,8 @@ Workspace workspaces[WORKSPACE_COUNT];
 Workspace *selws;
 VirtualOutput *selvout;
 HoverState hover;
+int ipc_pointer_reveal_hover;
+int ipc_pointer_reveal_edge;
 KeyboardGroup *kb_group;
 unsigned int cursor_mode;
 Client *grabc;

@@ -48,6 +48,13 @@ enum { CurNormal, CurPressed, CurMove, CurResize };				     /* cursor */
 enum { XDGShell, LayerShell, X11 };						     /* client types */
 enum { LyrBg, LyrBottom, LyrTile, LyrTop, LyrFS, LyrOverlay, LyrBlock, NUM_LAYERS }; /* scene layers */
 enum { FS_NONE, FS_VIRTUAL, FS_MONITOR };					     /* fullscreen modes */
+enum {
+	POINTER_REVEAL_EDGE_NONE,
+	POINTER_REVEAL_EDGE_TOP,
+	POINTER_REVEAL_EDGE_BOTTOM,
+	POINTER_REVEAL_EDGE_LEFT,
+	POINTER_REVEAL_EDGE_RIGHT,
+}; /* pointer reveal edge */
 enum TabHdrPos { TABHDR_TOP, TABHDR_BOTTOM };
 
 typedef struct TabTitleTransformRule {
@@ -341,6 +348,8 @@ extern Workspace workspaces[WORKSPACE_COUNT];
 extern Workspace *selws;
 extern VirtualOutput *selvout;
 extern HoverState hover;
+extern int ipc_pointer_reveal_hover;
+extern int ipc_pointer_reveal_edge;
 extern KeyboardGroup *kb_group;
 extern unsigned int cursor_mode;
 extern Client *grabc;
