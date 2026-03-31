@@ -32,6 +32,7 @@
 #include <wlr/types/wlr_export_dmabuf_v1.h>
 #include <wlr/types/wlr_ext_image_copy_capture_v1.h>
 #include <wlr/types/wlr_ext_image_capture_source_v1.h>
+#include <wlr/types/wlr_ext_workspace_v1.h>
 #include <wlr/types/wlr_fractional_scale_v1.h>
 #include <wlr/types/wlr_gamma_control_v1.h>
 #include <wlr/types/wlr_idle_inhibit_v1.h>
@@ -237,6 +238,9 @@ static struct wlr_virtual_pointer_manager_v1 *virtual_pointer_mgr;
 static struct wlr_cursor_shape_manager_v1 *cursor_shape_mgr;
 static struct wlr_output_power_manager_v1 *power_mgr;
 
+struct wlr_ext_workspace_manager_v1 *ext_workspace_manager;
+struct wlr_ext_workspace_group_handle_v1 *ext_workspace_group;
+
 static struct wlr_pointer_constraints_v1 *pointer_constraints;
 static struct wlr_relative_pointer_manager_v1 *relative_pointer_mgr;
 
@@ -277,6 +281,7 @@ extern struct wl_listener request_set_cursor_shape;
 extern struct wl_listener request_start_drag;
 extern struct wl_listener start_drag;
 extern struct wl_listener new_session_lock;
+extern struct wl_listener ext_workspace_commit;
 
 #ifdef XWAYLAND
 static void activatex11(struct wl_listener *listener, void *data);
@@ -462,6 +467,7 @@ cleanupmon(struct wl_listener *listener, void *data)
 	wl_list_remove(&m->frame.link);
 	wl_list_remove(&m->link);
 	wl_list_remove(&m->request_state.link);
+	wlr_ext_workspace_group_handle_v1_output_leave(ext_workspace_group, m->wlr_output);
 	if (m->lock_surface)
 		destroylocksurface(&m->destroy_lock_surface, NULL);
 	m->wlr_output->data = NULL;
@@ -656,6 +662,8 @@ createmon(struct wl_listener *listener, void *data)
 		wlr_output_layout_add_auto(output_layout, wlr_output);
 	else
 		wlr_output_layout_add(output_layout, wlr_output, m->monitor_area.x, m->monitor_area.y);
+
+	wlr_ext_workspace_group_handle_v1_output_enter(ext_workspace_group, wlr_output);
 
 	matched_count = 0;
 	first_vout = NULL;
@@ -1229,6 +1237,7 @@ focusclient(Client *c, int lift)
 			tabhdr_update(selvout->mon, selvout, area, focustoptiledvout(selvout));
 		}
 		c->isurgent = 0;
+		wlr_ext_workspace_handle_v1_set_urgent(c->ws->ext_workspace, false);
 
 		/* Don't change border color if there is an exclusive focus or we are
 		 * handling a drag operation */
@@ -2053,6 +2062,10 @@ setup(void)
 			break;
 		}
 	}
+
+	ext_workspace_manager = wlr_ext_workspace_manager_v1_create(dpy, 1);
+	ext_workspace_group = wlr_ext_workspace_group_handle_v1_create(ext_workspace_manager, 0);
+	wl_signal_add(&ext_workspace_manager->events.commit, &ext_workspace_commit);
 	for (i = 0; i < WORKSPACE_COUNT; i++) {
 		Workspace *ws = &workspaces[i];
 		ws->id = i;
@@ -2069,6 +2082,12 @@ setup(void)
 		ws->was_orphaned = false;
 		ws->orphan_vout_name[0] = '\0';
 		ws->orphan_monitor_name[0] = '\0';
+		ws->ext_workspace = wlr_ext_workspace_handle_v1_create(ext_workspace_manager, ws->name,
+				EXT_WORKSPACE_HANDLE_V1_WORKSPACE_CAPABILITIES_ACTIVATE);
+		ws->ext_workspace->data = ws;
+		wlr_ext_workspace_handle_v1_set_group(ws->ext_workspace, ext_workspace_group);
+		wlr_ext_workspace_handle_v1_set_name(ws->ext_workspace, ws->name);
+		wlr_ext_workspace_handle_v1_set_hidden(ws->ext_workspace, true);
 	}
 	selws = NULL;
 	spawnrules_init();
@@ -2695,8 +2714,10 @@ urgent(struct wl_listener *listener, void *data)
 	c->isurgent = 1;
 	updateipc();
 
-	if (client_surface(c)->mapped)
+	if (client_surface(c)->mapped) {
 		updatebordercolor(c, c == focustop(selmon));
+		wlr_ext_workspace_handle_v1_set_urgent(c->ws->ext_workspace, true);
+	}
 }
 
 void
@@ -3245,6 +3266,10 @@ wsattach(VirtualOutput *vout, Workspace *ws)
 		return;
 	if (ws->vout == vout)
 		return;
+
+	/* This is (almost) a no-op if nothing else changes */
+	wlr_ext_workspace_handle_v1_set_hidden(ws->ext_workspace, false);
+
 	old = ws->vout;
 	if (old) {
 		if (old->ws == ws) {
@@ -3275,6 +3300,8 @@ wsactivate(VirtualOutput *vout, Workspace *ws, int focus_change)
 	if (old == ws)
 		return;
 	wssave(vout);
+	if (old && old->ext_workspace)
+		wlr_ext_workspace_handle_v1_set_active(old->ext_workspace, false);
 	if (ws && ws->vout != vout)
 		wsattach(vout, ws);
 	if (ws) {
@@ -3296,6 +3323,8 @@ wsactivate(VirtualOutput *vout, Workspace *ws, int focus_change)
 		if (focus_change)
 			focusclient(focustopvout(vout), 1);
 	}
+	if (ws && ws->ext_workspace)
+		wlr_ext_workspace_handle_v1_set_active(ws->ext_workspace, true);
 }
 
 static void

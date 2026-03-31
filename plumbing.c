@@ -23,6 +23,7 @@
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_cursor_shape_v1.h>
 #include <wlr/types/wlr_data_device.h>
+#include <wlr/types/wlr_ext_workspace_v1.h>
 #include <wlr/types/wlr_seat.h>
 #include <wlr/types/wlr_fractional_scale_v1.h>
 #include <wlr/types/wlr_idle_notify_v1.h>
@@ -192,6 +193,7 @@ void setcursorshape(struct wl_listener *listener, void *data);
 void requeststartdrag(struct wl_listener *listener, void *data);
 void startdrag(struct wl_listener *listener, void *data);
 void locksession(struct wl_listener *listener, void *data);
+void extworkspacecommit(struct wl_listener *listener, void *data);
 #ifdef XWAYLAND
 void createnotifyx11(struct wl_listener *listener, void *data);
 void xwaylandready(struct wl_listener *listener, void *data);
@@ -226,6 +228,7 @@ struct wl_listener request_set_cursor_shape = {.notify = setcursorshape};
 struct wl_listener request_start_drag = {.notify = requeststartdrag};
 struct wl_listener start_drag = {.notify = startdrag};
 struct wl_listener new_session_lock = {.notify = locksession};
+struct wl_listener ext_workspace_commit = {.notify = extworkspacecommit};
 #ifdef XWAYLAND
 struct wl_listener new_xwayland_surface = {.notify = createnotifyx11};
 struct wl_listener xwayland_ready = {.notify = xwaylandready};
@@ -274,6 +277,7 @@ cleanuplisteners(void)
 	wl_list_remove(&request_start_drag.link);
 	wl_list_remove(&start_drag.link);
 	wl_list_remove(&new_session_lock.link);
+	wl_list_remove(&ext_workspace_commit.link);
 	share_cleanuplisteners();
 #ifdef XWAYLAND
 	wl_list_remove(&new_xwayland_surface.link);
@@ -400,6 +404,24 @@ buttonpress(struct wl_listener *listener, void *data)
 	/* If the event wasn't handled by the compositor, notify the client with
 	 * pointer focus that a button press has occurred */
 	wlr_seat_pointer_notify_button(seat, event->time_msec, event->button, event->state);
+}
+
+void
+extworkspacecommit(struct wl_listener *listener, void *data)
+{
+	struct wlr_ext_workspace_v1_commit_event *event = data;
+
+	struct wlr_ext_workspace_v1_request *req;
+	wl_list_for_each(req, event->requests, link) {
+		if (req->type == WLR_EXT_WORKSPACE_V1_REQUEST_ACTIVATE) {
+			struct Workspace *ws = req->activate.workspace->data;
+			if (ext_workspace_move_to_selvout) {
+				ipc_move_workspace_to_vout(ws, selvout);
+			} else {
+				view(&(Arg){.ui = ws->id});
+			}
+		}
+	}
 }
 
 void
