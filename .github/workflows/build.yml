@@ -10,7 +10,7 @@ jobs:
     container:
       image: archlinux:base-devel
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install formatter
         run: |
@@ -35,7 +35,7 @@ jobs:
             xwayland: "1"
     name: ${{ matrix.name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install repo dependencies
         run: |

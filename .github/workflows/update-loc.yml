@@ -1,0 +1,22 @@
+name: update-loc
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  update-loc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Update LoC
+        run: make update-loc
+
+      - name: Persist changes
+        run: |
+          git config --local user.name "ci"
+          git config --local user.email "ci@vwl"
+          if git status --porcelain | grep -q README.md; then git add README.md && git commit -m "chore: update LoC" && git push; fi
