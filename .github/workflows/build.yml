@@ -10,16 +10,24 @@ jobs:
     container:
       image: archlinux:base-devel
     steps:
-      - uses: actions/checkout@v4
-
       - name: Install formatter
         run: |
           pacman -Syu --noconfirm --needed \
             clang \
+            cloc \
+            git \
             make
+
+      - uses: actions/checkout@v4
 
       - name: Check formatting
         run: make format-check
+
+      - name: Check LoC update
+        run: |
+          cp README.md /tmp/README.before
+          make update-loc
+          cmp -s README.md /tmp/README.before
 
   build:
     runs-on: ubuntu-latest
