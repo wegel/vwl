@@ -1168,10 +1168,10 @@ cursorwarptovout(VirtualOutput *vout)
 	struct wlr_box area;
 	double cx, cy;
 
-	if (!cursor || !vout || !vout->mon)
+	if (!enable_cursor_warp_to_vout || !cursor || !vout || !vout->mon)
 		return;
 	area = !wlr_box_empty(&vout->layout_geom) ? vout->layout_geom : vout->mon->window_area;
-	if (area.width <= 0 || area.height <= 0)
+	if (wlr_box_empty(&area))
 		return;
 	cx = area.x + area.width / 2.0;
 	cy = area.y + area.height / 2.0;
