@@ -5,6 +5,7 @@
                         (hex & 0xFF) / 255.0f }
 /* appearance */
 static const int sloppyfocus               = 1;  /* focus follows mouse */
+static const int enable_cursor_warp_to_vout = 1;  /* warp cursor to the center of the target vout */
 static const int bypass_surface_visibility = 0;  /* 1 means idle inhibitors will disable idle tracking even if it's surface isn't visible  */
 static const int fullscreen_idle_inhibit   = 1;  /* 1 inhibits idle whenever a visible client is fullscreen */
 static const int passthrough_on_pointer_lock = 0; /* 1 passes keybindings to client when pointer is locked (eg QEMU grab) */
