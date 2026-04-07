@@ -954,7 +954,7 @@ placefloating(Client *c)
 	if (!c || !c->mon || !client_surface(c)->mapped)
 		return;
 	vout = CLIENT_VOUT(c);
-	if (vout && vout->layout_geom.width > 0 && vout->layout_geom.height > 0)
+	if (vout && !wlr_box_empty(&vout->layout_geom))
 		area = vout->layout_geom;
 	else
 		area = c->mon->window_area;
@@ -1224,8 +1224,7 @@ focusclient(Client *c, int lift)
 		if (selvout && selvout->lt[selvout->sellt] && selvout->lt[selvout->sellt]->arrange == tabbed) {
 			struct wlr_box area;
 			tabbed_mon = selvout->mon;
-			area = (selvout->layout_geom.width && selvout->layout_geom.height) ? selvout->layout_geom
-											   : selvout->mon->window_area;
+			area = !wlr_box_empty(&selvout->layout_geom) ? selvout->layout_geom : selvout->mon->window_area;
 			tabhdr_update(selvout->mon, selvout, area, focustoptiledvout(selvout));
 		}
 		c->isurgent = 0;
@@ -1418,7 +1417,7 @@ tabmove(const Arg *arg)
 
 	{
 		struct wlr_box area;
-		area = (vout->layout_geom.width && vout->layout_geom.height) ? vout->layout_geom : selmon->window_area;
+		area = !wlr_box_empty(&vout->layout_geom) ? vout->layout_geom : selmon->window_area;
 		tabhdr_update(selmon, vout, area, sel);
 	}
 	focusclient(sel, 1);
@@ -1691,6 +1690,7 @@ motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double d
 		hover.vout = hover_vout;
 		hover.ws = hover_vout ? hover_vout->ws : NULL;
 		xytonode(cursor->x, cursor->y, NULL, &hover.client, NULL, NULL, NULL);
+		share_update_capture_cursors(cursor->x, cursor->y, hover.client);
 
 		cursorsync();
 
@@ -1792,7 +1792,7 @@ resize(Client *c, struct wlr_box geo, int interact)
 	if (!c->mon || !client_surface(c)->mapped)
 		return;
 
-	limit = (vout && vout->layout_geom.width && vout->layout_geom.height) ? vout->layout_geom : c->mon->window_area;
+	limit = (vout && !wlr_box_empty(&vout->layout_geom)) ? vout->layout_geom : c->mon->window_area;
 	bbox = interact ? &sgeom : &limit;
 
 	client_set_bounds(c, geo.width, geo.height);
@@ -1929,7 +1929,7 @@ setfullscreen(Client *c, int fullscreen)
 		else
 			wlr_scene_node_reparent(&c->scene->node, layers[LyrTop]);
 		target = c->mon->monitor_area;
-		if (c->fullscreen_mode == FS_VIRTUAL && vout && vout->layout_geom.width && vout->layout_geom.height) {
+		if (c->fullscreen_mode == FS_VIRTUAL && vout && !wlr_box_empty(&vout->layout_geom)) {
 			target = vout->layout_geom;
 			if (vout->lt[vout->sellt] && vout->lt[vout->sellt]->arrange == tabbed) {
 				int header = tabhdr_header_height();
@@ -2386,7 +2386,7 @@ tabbed(Monitor *m)
 
 	if (!vout)
 		return;
-	area = (vout->layout_geom.width && vout->layout_geom.height) ? vout->layout_geom : m->window_area;
+	area = !wlr_box_empty(&vout->layout_geom) ? vout->layout_geom : m->window_area;
 	active = focustoptiledvout(vout);
 	header_height = tabhdr_header_height();
 
@@ -2440,7 +2440,7 @@ tile(Monitor *m)
 
 	if (!vout)
 		return;
-	area = (vout->layout_geom.width && vout->layout_geom.height) ? vout->layout_geom : m->window_area;
+	area = !wlr_box_empty(&vout->layout_geom) ? vout->layout_geom : m->window_area;
 
 	wl_list_for_each(c, &clients, link)
 		if (CLIENT_VOUT(c) == vout && VISIBLEON(c, m) && !c->isfloating && !c->isfullscreen)
@@ -2956,7 +2956,7 @@ voutat(Monitor *m, double lx, double ly)
 	if (!m)
 		return NULL;
 	wl_list_for_each(vout, &m->vouts, link) {
-		if (vout->layout_geom.width <= 0 || vout->layout_geom.height <= 0)
+		if (wlr_box_empty(&vout->layout_geom))
 			continue;
 		if (lx >= vout->layout_geom.x && lx < vout->layout_geom.x + vout->layout_geom.width &&
 				ly >= vout->layout_geom.y && ly < vout->layout_geom.y + vout->layout_geom.height)

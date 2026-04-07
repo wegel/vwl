@@ -7,6 +7,8 @@
 #include <wlr/interfaces/wlr_output.h>
 #include <wlr/types/wlr_ext_image_capture_source_v1.h>
 #include <wlr/types/wlr_ext_image_copy_capture_v1.h>
+#include <wlr/types/wlr_xcursor_manager.h>
+#include <wlr/util/box.h>
 #include <wlr/util/log.h>
 
 #include "vwl.h"
@@ -19,6 +21,12 @@ static struct vwl_vout_image_capture_source_manager_v1 *vout_capture_mgr;
 static struct wl_event_loop *share_event_loop;
 static struct wlr_allocator *share_allocator;
 static struct wlr_renderer *share_renderer;
+static struct share_cursor {
+	struct wlr_buffer *buffer;
+	int32_t hotspot_x;
+	int32_t hotspot_y;
+	Client *last_hovered;
+} share_cursor;
 
 static bool ensureimagesource(Client *c);
 static bool ensurevoutimagesource(VirtualOutput *vout);
@@ -55,6 +63,7 @@ static struct wl_listener foreign_toplevel_capture_request = {
 
 static size_t last_vout_capture_num;
 
+static void loadcursorimage(struct wlr_xcursor_manager *mgr);
 static struct wlr_box voutcapturebox(VirtualOutput *vout);
 static void sourceupdateconstraints(struct vout_image_source *source, const struct wlr_output_state *state);
 static void rendersource(struct vout_image_source *source);
@@ -134,7 +143,7 @@ voutcapturebox(VirtualOutput *vout)
 {
 	if (!vout || !vout->mon)
 		return (struct wlr_box){0};
-	if (vout->layout_geom.width > 0 && vout->layout_geom.height > 0)
+	if (!wlr_box_empty(&vout->layout_geom))
 		return vout->layout_geom;
 	return vout->mon->window_area;
 }
@@ -155,12 +164,18 @@ share_create_capture_scene(Client *c)
 			goto fail;
 		if (!wlr_scene_surface_create(c->image_capture_tree, client_surface(c)))
 			goto fail;
-		return true;
+	} else {
+		c->image_capture_tree = wlr_scene_xdg_surface_create(&c->image_capture_scene->tree, c->surface.xdg);
+		if (!c->image_capture_tree)
+			goto fail;
 	}
 
-	c->image_capture_tree = wlr_scene_xdg_surface_create(&c->image_capture_scene->tree, c->surface.xdg);
-	if (!c->image_capture_tree)
-		goto fail;
+	loadcursorimage(cursor_mgr);
+	if (share_cursor.buffer) {
+		c->image_capture_cursor = wlr_scene_buffer_create(&c->image_capture_scene->tree, share_cursor.buffer);
+		if (c->image_capture_cursor)
+			wlr_scene_node_set_enabled(&c->image_capture_cursor->node, false);
+	}
 
 	return true;
 
@@ -197,6 +212,7 @@ share_destroy_capture_scene(Client *c)
 	wlr_scene_node_destroy(&c->image_capture_scene->tree.node);
 	c->image_capture_scene = NULL;
 	c->image_capture_tree = NULL;
+	c->image_capture_cursor = NULL;
 }
 
 void
@@ -204,6 +220,9 @@ share_destroy(Client *c)
 {
 	if (!c)
 		return;
+
+	if (share_cursor.last_hovered == c)
+		share_cursor.last_hovered = NULL;
 
 	if (c->image_capture_source) {
 		wl_list_remove(&c->image_capture_source_destroy.link);
@@ -237,6 +256,46 @@ share_update_title(Client *c)
 			.title = client_get_title(c),
 	};
 	wlr_ext_foreign_toplevel_handle_v1_update_state(c->ext_foreign_toplevel, &state);
+}
+
+void
+share_update_capture_cursors(double lx, double ly, Client *hovered)
+{
+	if (hovered && (!hovered->image_capture_cursor || !share_is_captured(hovered)))
+		hovered = NULL;
+
+	if (!share_cursor.last_hovered && !hovered)
+		return;
+
+	if (share_cursor.last_hovered && share_cursor.last_hovered != hovered)
+		wlr_scene_node_set_enabled(&share_cursor.last_hovered->image_capture_cursor->node, false);
+
+	share_cursor.last_hovered = hovered;
+
+	if (!hovered)
+		return;
+
+	wlr_scene_node_set_position(&hovered->image_capture_cursor->node,
+			(int)(lx - hovered->geom.x - share_cursor.hotspot_x + hovered->bw),
+			(int)(ly - hovered->geom.y - share_cursor.hotspot_y + hovered->bw));
+	wlr_scene_node_set_enabled(&hovered->image_capture_cursor->node, true);
+}
+
+static void
+loadcursorimage(struct wlr_xcursor_manager *mgr)
+{
+	struct wlr_xcursor *xcursor;
+	struct wlr_xcursor_image *image;
+
+	if (!mgr || share_cursor.buffer)
+		return;
+	xcursor = wlr_xcursor_manager_get_xcursor(mgr, "default", 1);
+	if (!xcursor || xcursor->image_count == 0)
+		return;
+	image = xcursor->images[0];
+	share_cursor.buffer = wlr_xcursor_image_get_buffer(image);
+	share_cursor.hotspot_x = (int32_t)image->hotspot_x;
+	share_cursor.hotspot_y = (int32_t)image->hotspot_y;
 }
 
 static void
