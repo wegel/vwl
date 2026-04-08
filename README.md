@@ -3,7 +3,7 @@
 wlroots-based Wayland compositor with virtual outputs and physical cursor continuity.
 Originally forked from dwl.
 
-`LOC: 7442 total, 2878 vwl.c`
+`LOC: 7494 total, 2878 vwl.c`
 
 ## Features
 

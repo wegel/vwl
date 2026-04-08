@@ -112,6 +112,7 @@ struct Client {
 	struct wlr_scene_tree *scene_surface;
 	struct wlr_scene *image_capture_scene;
 	struct wlr_scene_tree *image_capture_tree;
+	struct wlr_scene_buffer *image_capture_cursor;
 	struct wlr_ext_foreign_toplevel_handle_v1 *ext_foreign_toplevel;
 	struct wlr_ext_image_capture_source_v1 *image_capture_source;
 	struct wl_list link;
