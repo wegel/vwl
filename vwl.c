@@ -1558,6 +1558,10 @@ mapnotify(struct wl_listener *listener, void *data)
 		spawnrules_forget(c);
 		if (!target_ws && p->mon)
 			target_ws = MON_FOCUS_WS(p->mon);
+		if (c->isfloating && c->geom.x == 0 && c->geom.y == 0) {
+			c->geom.x = p->geom.x + (p->geom.width - c->geom.width) / 2;
+			c->geom.y = p->geom.y + (p->geom.height - c->geom.height) / 2;
+		}
 		setworkspace(c, target_ws);
 	} else if (!spawnrules_apply(c)) {
 		applyrules(c);
