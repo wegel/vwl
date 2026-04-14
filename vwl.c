@@ -2714,7 +2714,9 @@ view(const Arg *arg)
 		return;
 	vout = ws->vout;
 	if (!vout) {
-		if (cursor) {
+		if (!enable_cursor_warp_to_vout && selvout) {
+			vout = selvout;
+		} else if (cursor) {
 			Monitor *pointer_mon = xytomon(cursor->x, cursor->y);
 			VirtualOutput *pointer_vout = pointer_mon ? voutat(pointer_mon, cursor->x, cursor->y) : NULL;
 			if (pointer_vout)
