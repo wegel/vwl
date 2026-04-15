@@ -111,6 +111,9 @@ static const VirtualOutputRule vorules[] = {
 	{ NULL,    NULL,     0,   0,   0,   0,   0.55f, 1,       &layouts[0],     (LENGTH(layouts) > 1) ? &layouts[1] : &layouts[0], NULL, 0 },
 };
 
+/* workspaces */
+static const bool ext_workspace_move_to_selvout = 0;
+
 /* keyboard */
 static const struct xkb_rule_names xkb_rules = {
 	/* can specify fields: rules, model, layout, variant, options */
