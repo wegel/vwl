@@ -895,17 +895,17 @@ borderwidth(Client *c)
 {
 	if (!c || client_is_unmanaged(c) || c->isfullscreen)
 		return 0;
-	return c->isfloating ? floatborderpx : borderpx;
+	return client_is_x11(c) ? xborderpx : c->isfloating ? floatborderpx : borderpx;
 }
 
 static const float *
 bordercolorfor(Client *c, int focused)
 {
 	if (c->isurgent)
-		return c->isfloating ? floaturgentcolor : urgentcolor;
+		return client_is_x11(c) ? xurgentcolor : c->isfloating ? floaturgentcolor : urgentcolor;
 	if (focused)
-		return c->isfloating ? floatfocuscolor : focuscolor;
-	return c->isfloating ? floatbordercolor : bordercolor;
+		return client_is_x11(c) ? xfocuscolor : c->isfloating ? floatfocuscolor : focuscolor;
+	return client_is_x11(c) ? xbordercolor : c->isfloating ? floatbordercolor : bordercolor;
 }
 
 static void

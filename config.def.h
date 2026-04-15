@@ -11,6 +11,7 @@ static const int fullscreen_idle_inhibit   = 1;  /* 1 inhibits idle whenever a v
 static const int passthrough_on_pointer_lock = 0; /* 1 passes keybindings to client when pointer is locked (eg QEMU grab) */
 static const unsigned int borderpx         = 1;  /* border pixel of windows */
 static const unsigned int floatborderpx    = 1;  /* border pixel of floating windows */
+static const unsigned int xborderpx        = 1;  /* border pixel of Xwayland windows */
 static const float rootcolor[]             = COLOR(0x222222ff);
 static const float bordercolor[]           = COLOR(0x444444ff);
 static const float focuscolor[]            = COLOR(0x005577ff);
@@ -18,6 +19,9 @@ static const float urgentcolor[]           = COLOR(0xff0000ff);
 static const float floatbordercolor[]      = COLOR(0x444444ff);
 static const float floatfocuscolor[]       = COLOR(0x005577ff);
 static const float floaturgentcolor[]      = COLOR(0xff0000ff);
+static const float xbordercolor[]          = COLOR(0x444444ff);
+static const float xfocuscolor[]           = COLOR(0x005577ff);
+static const float xurgentcolor[]          = COLOR(0xff0000ff);
 static const int center_floating_windows   = 0;     /* center windows when toggled floating */
 static const float floating_window_width_factor = 1.0f;  /* 0 < factor <= 1 */
 static const float floating_window_height_factor = 1.0f; /* 0 < factor <= 1 */
