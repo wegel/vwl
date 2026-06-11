@@ -133,6 +133,8 @@ void debugstate(const Arg *arg);
 static Monitor *dirtomon(enum wlr_direction dir);
 static int invertdir(enum wlr_direction dir);
 static Monitor *dirtomonfrom(Monitor *from, enum wlr_direction dir);
+static Monitor *monfirstenabled(void);
+static int monisvalid(Monitor *mon);
 static VirtualOutput *voutonmonitor(Monitor *mon, enum wlr_direction dir, struct wlr_box ref, int require_overlap);
 static VirtualOutput *findvoutindir(VirtualOutput *from, enum wlr_direction dir);
 void focusclient(Client *c, int lift);
@@ -1043,6 +1045,33 @@ dirtomonfrom(Monitor *from, enum wlr_direction dir)
 			     from->monitor_area.x, from->monitor_area.y)))
 		return next->data;
 	return from;
+}
+
+static Monitor *
+monfirstenabled(void)
+{
+	Monitor *m;
+
+	wl_list_for_each(m, &mons, link) {
+		if (m->wlr_output && m->wlr_output->enabled)
+			return m;
+	}
+	return NULL;
+}
+
+static int
+monisvalid(Monitor *mon)
+{
+	Monitor *m;
+
+	if (!mon)
+		return 0;
+
+	wl_list_for_each(m, &mons, link) {
+		if (m == mon)
+			return m->wlr_output != NULL;
+	}
+	return 0;
 }
 
 static VirtualOutput *
@@ -2634,6 +2663,9 @@ updatemons(struct wl_listener *listener, void *data)
 			selmon = m;
 		}
 	}
+
+	if (!monisvalid(selmon))
+		selmon = monfirstenabled();
 
 	if (selmon && selmon->wlr_output->enabled) {
 		VirtualOutput *vout = focusedvout(selmon);

@@ -979,15 +979,26 @@ powermgrsetmode(struct wl_listener *listener, void *data)
 	struct wlr_output_power_v1_set_mode_event *event = data;
 	struct wlr_output_state state = {0};
 	Monitor *m = event->output->data;
+	int enable = event->mode;
 
 	if (!m)
 		return;
 
 	m->gamma_lut_changed = 1; /* Reapply gamma LUT when re-enabling the ouput */
-	wlr_output_state_set_enabled(&state, event->mode);
-	wlr_output_commit_state(m->wlr_output, &state);
 
-	m->asleep = !event->mode;
+	if (!enable)
+		m->asleep = 1;
+
+	wlr_output_state_set_enabled(&state, enable);
+	if (!wlr_output_commit_state(m->wlr_output, &state)) {
+		if (!enable)
+			m->asleep = 0;
+		return;
+	}
+
+	if (enable)
+		m->asleep = 0;
+
 	updatemons(NULL, NULL);
 }
 
