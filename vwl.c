@@ -619,14 +619,20 @@ createmon(struct wl_listener *listener, void *data)
 	 * the user configure it. */
 	wlr_output_state_set_mode(&state, wlr_output_preferred_mode(wlr_output));
 
+	wlr_output_state_set_enabled(&state, 1);
+	if (!wlr_output_commit_state(wlr_output, &state)) {
+		wlr_log(WLR_ERROR, "failed to commit initial state for output %s", wlr_output->name);
+		wlr_output_state_finish(&state);
+		wlr_output->data = NULL;
+		free(m);
+		return;
+	}
+	wlr_output_state_finish(&state);
+
 	/* Set up event listeners */
 	LISTEN(&wlr_output->events.frame, &m->frame, rendermon);
 	LISTEN(&wlr_output->events.destroy, &m->destroy, cleanupmon);
 	LISTEN(&wlr_output->events.request_state, &m->request_state, requestmonstate);
-
-	wlr_output_state_set_enabled(&state, 1);
-	wlr_output_commit_state(wlr_output, &state);
-	wlr_output_state_finish(&state);
 
 	wlr_xcursor_manager_load(cursor_mgr, wlr_output->scale);
 
