@@ -993,6 +993,7 @@ destroynotify(struct wl_listener *listener, void *data)
 {
 	/* Called when the xdg_toplevel is destroyed. */
 	Client *c = wl_container_of(listener, c, destroy);
+	spawnrules_forget(c);
 	share_destroy_capture_scene(c);
 	if (c->image_capture_source) {
 		wl_list_remove(&c->image_capture_source_destroy.link);
@@ -1010,6 +1011,7 @@ destroynotify(struct wl_listener *listener, void *data)
 		wl_list_remove(&c->configure.link);
 		wl_list_remove(&c->dissociate.link);
 		wl_list_remove(&c->set_hints.link);
+		wl_list_remove(&c->set_startup_id.link);
 	} else
 #endif
 	{
@@ -1511,6 +1513,7 @@ mapnotify(struct wl_listener *listener, void *data)
 
 	/* Handle unmanaged clients first so we can return prior create borders */
 	if (client_is_unmanaged(c)) {
+		spawnrules_forget(c);
 		/* Unmanaged clients are placed above tiles but below fullscreen */
 		wlr_scene_node_reparent(&c->scene->node, layers[LyrTop]);
 		wlr_scene_node_set_position(&c->scene->node, c->geom.x, c->geom.y);
@@ -1545,6 +1548,7 @@ mapnotify(struct wl_listener *listener, void *data)
 	 * If there is no parent, apply rules */
 	if ((p = client_get_parent(c))) {
 		Workspace *target_ws = p->ws;
+		spawnrules_forget(c);
 		if (!target_ws && p->mon)
 			target_ws = MON_FOCUS_WS(p->mon);
 		setworkspace(c, target_ws);
@@ -2106,7 +2110,6 @@ setup(void)
 		ws->orphan_monitor_name[0] = '\0';
 	}
 	selws = NULL;
-	spawnrules_init();
 
 	/* Autocreates a renderer, either Pixman, GLES2 or Vulkan for us. The user
 	 * can also specify a renderer using the WLR_RENDERER env var.
@@ -2160,9 +2163,10 @@ setup(void)
 	wlr_ext_output_image_capture_source_manager_v1_create(dpy, 1);
 	share_init(dpy, event_loop, alloc, drw);
 
-	/* Initializes the interface used to implement urgency hints */
+	/* Handles startup tokens and client activation requests. */
 	activation = wlr_xdg_activation_v1_create(dpy);
 	wl_signal_add(&activation->events.request_activate, &request_activate);
+	spawnrules_init(activation);
 
 	wlr_scene_set_gamma_control_manager_v1(scene, wlr_gamma_control_manager_v1_create(dpy));
 
@@ -2726,7 +2730,10 @@ urgent(struct wl_listener *listener, void *data)
 {
 	struct wlr_xdg_activation_v1_request_activate_event *event = data;
 	Client *c = NULL;
+	(void)listener;
 	toplevel_from_wlr_surface(event->surface, &c, NULL);
+	if (c && !client_surface(c)->mapped && spawnrules_bind_token(c, event->token))
+		return;
 	if (!c || c == focustop(selmon))
 		return;
 
@@ -3387,9 +3394,22 @@ void
 associatex11(struct wl_listener *listener, void *data)
 {
 	Client *c = wl_container_of(listener, c, associate);
+	uint32_t group = c->surface.xwayland->hints ? c->surface.xwayland->hints->window_group : 0;
 
+	spawnrules_track_startup_id(c->surface.xwayland->window_id, group, c->surface.xwayland->startup_id);
 	LISTEN(&client_surface(c)->events.map, &c->map, mapnotify);
 	LISTEN(&client_surface(c)->events.unmap, &c->unmap, unmapnotify);
+}
+
+void
+setstartupidx11(struct wl_listener *listener, void *data)
+{
+	Client *c = wl_container_of(listener, c, set_startup_id);
+	uint32_t group = c->surface.xwayland->hints ? c->surface.xwayland->hints->window_group : 0;
+	(void)data;
+
+	if (!client_surface(c) || !client_surface(c)->mapped)
+		spawnrules_track_startup_id(c->surface.xwayland->window_id, group, c->surface.xwayland->startup_id);
 }
 
 void
@@ -3441,6 +3461,7 @@ createnotifyx11(struct wl_listener *listener, void *data)
 	LISTEN(&xsurface->events.request_configure, &c->configure, configurex11);
 	LISTEN(&xsurface->events.request_fullscreen, &c->fullscreen, fullscreennotify);
 	LISTEN(&xsurface->events.set_hints, &c->set_hints, sethints);
+	LISTEN(&xsurface->events.set_startup_id, &c->set_startup_id, setstartupidx11);
 	LISTEN(&xsurface->events.set_title, &c->set_title, updatetitle);
 }
 

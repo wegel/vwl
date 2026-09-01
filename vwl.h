@@ -100,6 +100,7 @@ typedef struct Rule Rule;
 typedef struct SessionLock SessionLock;
 typedef struct IPCOutput IPCOutput;
 typedef struct IPCManager IPCManager;
+typedef struct PendingSpawn PendingSpawn;
 struct wlr_ext_image_capture_source_v1;
 
 struct Client {
@@ -114,6 +115,7 @@ struct Client {
 	struct wlr_scene_tree *image_capture_tree;
 	struct wlr_ext_foreign_toplevel_handle_v1 *ext_foreign_toplevel;
 	struct wlr_ext_image_capture_source_v1 *image_capture_source;
+	PendingSpawn *pending_spawn;
 	struct wl_list link;
 	struct wl_list flink;
 	struct wlr_box geom;   /* layout-relative, includes border */
@@ -140,6 +142,7 @@ struct Client {
 	struct wl_listener dissociate;
 	struct wl_listener configure;
 	struct wl_listener set_hints;
+	struct wl_listener set_startup_id;
 #endif
 	unsigned int bw;
 	Workspace *ws;
