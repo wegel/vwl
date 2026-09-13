@@ -479,6 +479,19 @@ cleanupmon(struct wl_listener *listener, void *data)
 
 	closemon(m);
 	wlr_scene_node_destroy(&m->fullscreen_bg->node);
+
+	/* closemon() only repairs selmon while it still points at m, and the
+	 * re-entrant updatemons() above can hand it back. Drop every global
+	 * reference before the Monitor goes away. */
+	if (selmon == m)
+		selmon = monfirstenabled();
+	if (hover.mon == m)
+		hover.mon = NULL;
+	if (cursor_phys.mon == m)
+		cursor_phys.mon = NULL;
+	if (cursor_phys.last_mon == m)
+		cursor_phys.last_mon = NULL;
+
 	free(m);
 }
 
@@ -3162,6 +3175,10 @@ destroyvout(VirtualOutput *vout)
 	wl_list_remove(&vout->link);
 	if (m && m->focus_vout == vout)
 		m->focus_vout = firstvout(m);
+	if (selvout == vout)
+		selvout = NULL;
+	if (hover.vout == vout)
+		hover.vout = NULL;
 	free(vout);
 }
 
