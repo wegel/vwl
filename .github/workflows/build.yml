@@ -83,3 +83,6 @@ jobs:
         run: |
           make clean
           make
+
+      - name: Test fullscreen with a headless compositor
+        run: make check

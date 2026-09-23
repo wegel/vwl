@@ -3,7 +3,7 @@
 wlroots-based Wayland compositor with virtual outputs and physical cursor continuity.
 Originally forked from dwl.
 
-`LOC: 7592 total, 2931 vwl.c`
+`LOC: 7614 total, 2953 vwl.c`
 
 ## Features
 
@@ -25,7 +25,7 @@ Originally forked from dwl.
 - `mod+j/k` focus next/prev
 - `mod+h/l` adjust master width
 - `mod+m` zoom (swap master)
-- `mod+f` toggle fullscreen (`virtual -> monitor -> off`)
+- `mod+f` cycle fullscreen (skips virtual fullscreen when it duplicates monitor fullscreen)
 - `mod+t` toggle tabbed layout
 - `mod+space` cycle layout
 - `mod+shift+e` quit compositor
@@ -41,6 +41,10 @@ Originally forked from dwl.
 ```sh
 make
 ```
+
+Run `make check` to test fullscreen with a separate headless compositor and a
+Wayland test app. The test uses temporary sockets and does not change your
+running desktop. It also requires the `wayland-client` development files.
 
 ## Running
 
@@ -102,10 +106,25 @@ static const VirtualOutputRule vorules[] = {
 
 ## Fullscreen Modes
 
-- virtual fullscreen: fills virtual output region
-- monitor fullscreen: fills entire physical monitor
+- virtual fullscreen: fills the virtual output's usable area, keeping panels and tab headers visible
+- monitor fullscreen: fills the entire physical monitor, covering ordinary panels and tab headers
 
-Toggle with `mod+f` cycles through: `off -> virtual -> monitor -> off`
+`mod+f` normally cycles through `off -> virtual -> monitor -> off`. When the
+virtual output fills the physical monitor with no reserved panel space, it uses
+`off -> monitor -> off`. Tabbed workspaces keep the virtual step so you can
+still switch tabs, even if the tab header is hidden.
+
+The compositor checks the current workspace and display on each keypress.
+Moving a workspace or changing its layout resizes a fullscreen window within
+its chosen scope; the next keypress skips any virtual-to-monitor step that
+would now repeat the same area and keep no tab controls.
+
+An app's fullscreen request enters the same first mode as `mod+f`. Repeated
+requests keep its current mode. A normal window that already fills its
+workspace still enters fullscreen, removing its border and letting the app
+hide its own controls. Floating windows regain their original size when
+fullscreen ends. Opening another ordinary window in the same workspace exits
+monitor fullscreen; virtual fullscreen stays active.
 
 ## Physical Cursor Continuity
 

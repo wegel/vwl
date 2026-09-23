@@ -119,7 +119,7 @@ struct Client {
 	struct wl_list link;
 	struct wl_list flink;
 	struct wlr_box geom;   /* layout-relative, includes border */
-	struct wlr_box prev;   /* layout-relative, includes border */
+	struct wlr_box prev;   /* before entering fullscreen, includes border */
 	struct wlr_box bounds; /* only width and height are used */
 	union {
 		struct wlr_xdg_surface *xdg;

@@ -142,6 +142,8 @@ void focusvout(const Arg *arg);
 void focusmon(const Arg *arg);
 void focusstack(const Arg *arg);
 Client *focustop(Monitor *m);
+static struct wlr_box fullscreenbox(Client *c, int mode);
+static bool hasvirtualfullscreen(Client *c);
 static void fullscreennotify(struct wl_listener *listener, void *data);
 void gpureset(struct wl_listener *listener, void *data);
 void handlesig(int signo);
@@ -400,6 +402,11 @@ arrange(Monitor *m)
 
 	wl_list_for_each(c, &clients, link) {
 		if (c->mon == m) {
+			if (c->isfullscreen && c->fullscreen_mode != FS_NONE) {
+				struct wlr_box target = fullscreenbox(c, c->fullscreen_mode);
+				if (!wlr_box_equal(&c->geom, &target))
+					resize(c, target, 0);
+			}
 			wlr_scene_node_set_enabled(&c->scene->node, VISIBLEON(c, m));
 			client_set_suspended(c, !VISIBLEON(c, m) && !share_is_captured(c));
 			if (!c->isfullscreen && !client_is_unmanaged(c))
@@ -1474,12 +1481,7 @@ void
 fullscreennotify(struct wl_listener *listener, void *data)
 {
 	Client *c = wl_container_of(listener, c, fullscreen);
-	if (client_wants_fullscreen(c)) {
-		c->fullscreen_mode = FS_VIRTUAL;
-		setfullscreen(c, 1);
-	} else {
-		setfullscreen(c, 0);
-	}
+	setfullscreen(c, client_wants_fullscreen(c));
 }
 
 void
@@ -1498,6 +1500,7 @@ mapnotify(struct wl_listener *listener, void *data)
 	Client *w, *c = wl_container_of(listener, c, map);
 	Monitor *m;
 	int i;
+	int requested_fullscreen = c->isfullscreen;
 
 	/* Create scene tree for this client and its border */
 	c->scene = client_surface(c)->data = wlr_scene_tree_create(layers[LyrTile]);
@@ -1525,6 +1528,10 @@ mapnotify(struct wl_listener *listener, void *data)
 		goto unset_fullscreen;
 	}
 
+	/* Apply requests made before mapping after the normal window has a size
+	 * and workspace, so leaving fullscreen can restore that window. */
+	c->isfullscreen = 0;
+	c->fullscreen_mode = FS_NONE;
 	c->isfloating = client_is_float_type(c);
 	c->bw = borderwidth(c);
 
@@ -1555,6 +1562,8 @@ mapnotify(struct wl_listener *listener, void *data)
 	} else if (!spawnrules_apply(c)) {
 		applyrules(c);
 	}
+	if (requested_fullscreen)
+		setfullscreen(c, 1);
 	if (vt_recovery_mode && c->ws)
 		vt_recovery_mode = false;
 	updateipc();
@@ -1946,46 +1955,76 @@ togglefloating(const Arg *arg)
 	setfloating(c, !c->isfloating);
 }
 
+static struct wlr_box
+fullscreenbox(Client *c, int mode)
+{
+	VirtualOutput *vout = CLIENT_VOUT(c);
+	struct wlr_box target = c->mon ? c->mon->monitor_area : (struct wlr_box){0};
+	int header;
+
+	if (mode != FS_VIRTUAL || !vout || wlr_box_empty(&vout->layout_geom))
+		return target;
+	target = vout->layout_geom;
+	if (vout->lt[vout->sellt] && vout->lt[vout->sellt]->arrange == tabbed) {
+		header = tabhdr_header_height();
+		if (header > 0 && target.height > header) {
+			target.height -= header;
+			if (tabhdr_position_value() == TABHDR_TOP)
+				target.y += header;
+		}
+	}
+	return target;
+}
+
+static bool
+hasvirtualfullscreen(Client *c)
+{
+	VirtualOutput *vout = CLIENT_VOUT(c);
+	struct wlr_box virtual = fullscreenbox(c, FS_VIRTUAL);
+	struct wlr_box physical = fullscreenbox(c, FS_MONITOR);
+
+	/* Virtual fullscreen keeps tab switching, even with no visible header. */
+	return !wlr_box_equal(&virtual, &physical) ||
+	       (vout && vout->lt[vout->sellt] && vout->lt[vout->sellt]->arrange == tabbed);
+}
+
 void
 setfullscreen(Client *c, int fullscreen)
 {
-	VirtualOutput *vout;
-	struct wlr_box target;
+	int was_fullscreen = c->isfullscreen && c->fullscreen_mode != FS_NONE;
+
 	c->isfullscreen = fullscreen;
-	if (!c->mon || !client_surface(c)->mapped)
+	if (!c->mon || !client_surface(c)->mapped) {
+		if (!fullscreen) {
+			if (was_fullscreen) {
+				c->geom = c->prev;
+				c->bw = borderwidth(c);
+			}
+			c->fullscreen_mode = FS_NONE;
+		}
 		return;
+	}
+	if (fullscreen && !was_fullscreen) {
+		c->prev = c->geom;
+		c->fullscreen_mode = hasvirtualfullscreen(c) ? FS_VIRTUAL : FS_MONITOR;
+	}
 	client_set_fullscreen(c, fullscreen);
-	updateborderwidth(c, !fullscreen);
+	updateborderwidth(c, !fullscreen && !was_fullscreen);
 	updatebordercolor(c, c == focustop(selmon));
 
 	if (fullscreen) {
-		c->prev = c->geom;
-		vout = CLIENT_VOUT(c);
-		if (c->fullscreen_mode == FS_NONE)
-			c->fullscreen_mode = FS_VIRTUAL;
-		if (c->fullscreen_mode == FS_MONITOR || !vout)
+		if (c->fullscreen_mode == FS_MONITOR || !CLIENT_VOUT(c))
 			wlr_scene_node_reparent(&c->scene->node, layers[LyrFS]);
 		else
 			wlr_scene_node_reparent(&c->scene->node, layers[LyrTop]);
-		target = c->mon->monitor_area;
-		if (c->fullscreen_mode == FS_VIRTUAL && vout && vout->layout_geom.width && vout->layout_geom.height) {
-			target = vout->layout_geom;
-			if (vout->lt[vout->sellt] && vout->lt[vout->sellt]->arrange == tabbed) {
-				int header = tabhdr_header_height();
-				if (header > 0 && target.height > header) {
-					target.height -= header;
-					if (tabhdr_position_value() == TABHDR_TOP)
-						target.y += header;
-				}
-			}
-		}
-		resize(c, target, 0);
+		resize(c, fullscreenbox(c, c->fullscreen_mode), 0);
 		if (c->fullscreen_mode == FS_VIRTUAL)
 			wlr_scene_node_raise_to_top(&c->scene->node);
 	} else {
 		wlr_scene_node_reparent(&c->scene->node, layers[c->isfloating ? LyrTop : LyrTile]);
 		c->fullscreen_mode = FS_NONE;
-		resize(c, c->prev, 0);
+		if (was_fullscreen)
+			resize(c, c->prev, 0);
 	}
 	arrange(c->mon);
 	updateipc();
@@ -2039,7 +2078,6 @@ setworkspace(Client *c, Workspace *ws)
 
 	c->ws = ws;
 	c->mon = newmon;
-	c->prev = c->geom;
 
 	if (oldmon && oldmon != c->mon)
 		arrange(oldmon);
@@ -2523,9 +2561,8 @@ togglefullscreen(const Arg *arg)
 	if (!sel)
 		return;
 	if (!sel->isfullscreen) {
-		sel->fullscreen_mode = FS_VIRTUAL;
 		setfullscreen(sel, 1);
-	} else if (sel->fullscreen_mode == FS_VIRTUAL) {
+	} else if (sel->fullscreen_mode == FS_VIRTUAL && hasvirtualfullscreen(sel)) {
 		sel->fullscreen_mode = FS_MONITOR;
 		setfullscreen(sel, 1);
 	} else {
@@ -2652,15 +2689,6 @@ updatemons(struct wl_listener *listener, void *data)
 		arrangevout(m, &usable);
 		/* Don't move clients to the left output when plugging monitors */
 		arrange(m);
-		/* make sure all fullscreen clients have the right size */
-		wl_list_for_each(c, &clients, link) {
-			if (c->mon != m || !c->isfullscreen)
-				continue;
-			if (c->fullscreen_mode == FS_MONITOR)
-				resize(c, m->monitor_area, 0);
-			else
-				setfullscreen(c, 1);
-		}
 
 		/* Try to re-set the gamma LUT when updating monitors,
 		 * it's only really needed when enabling a disabled output, but meh. */
@@ -3538,4 +3566,5 @@ main(int argc, char *argv[])
 
 usage:
 	die("Usage: %s [-v] [-d] [-s startup command]", argv[0]);
+	return EXIT_FAILURE;
 }

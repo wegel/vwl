@@ -2,6 +2,7 @@
 /patches/
 vwl
 vwlctl
+/tests/fullscreen-test
 *.o
 *.log
 *-protocol.c
