@@ -3,7 +3,7 @@
 wlroots-based Wayland compositor with virtual outputs and physical cursor continuity.
 Originally forked from dwl.
 
-`LOC: 7614 total, 2953 vwl.c`
+`LOC: 7626 total, 2960 vwl.c`
 
 ## Features
 
@@ -42,9 +42,10 @@ Originally forked from dwl.
 make
 ```
 
-Run `make check` to test fullscreen with a separate headless compositor and a
-Wayland test app. The test uses temporary sockets and does not change your
-running desktop. It also requires the `wayland-client` development files.
+Run `make check` to test fullscreen, workspace moves, and display reconnects
+with separate headless compositors and a Wayland test app. The tests use
+temporary sockets and do not change your running desktop. They also require
+the `wayland-client` development files.
 
 ## Running
 
@@ -90,6 +91,11 @@ Key settings:
 
 Split physical monitors into named regions. Each region gets its own workspace.
 Move workspaces between regions with `mod+ctrl+shift+hjkl`.
+
+The compositor keeps those moves when a display reconnects. It restores each
+workspace to its last display and region, with the previously visible workspace
+active again. Workspace lists in `vorules[]` set startup defaults for workspaces
+that have no current or saved home.
 
 ```c
 static const VirtualOutputRule vorules[] = {

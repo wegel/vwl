@@ -485,55 +485,54 @@ cleanupmon(struct wl_listener *listener, void *data)
 void
 closemon(Monitor *m)
 {
-	/* update selmon if needed and
-	 * move closed monitor's clients to the focused one */
+	/* Keep each workspace's home while its monitor is unavailable. */
 	Client *c;
 	Workspace *ws, *wtmp;
 	VirtualOutput *vout, *vtmp;
 	Monitor *target;
 	VirtualOutput *target_vout = NULL;
-	int i = 0, nmons = wl_list_length(&mons);
 	vt_recovery_mode = true;
-	if (!nmons) {
+	if (selmon == m || !monisvalid(selmon) || !selmon->wlr_output->enabled) {
 		selmon = NULL;
-	} else if (m == selmon) {
-		do /* don't switch to disabled mons */
-			selmon = wl_container_of(mons.next, selmon, link);
-		while (!selmon->wlr_output->enabled && i++ < nmons);
-
-		if (!selmon->wlr_output->enabled)
-			selmon = NULL;
+		wl_list_for_each(target, &mons, link) {
+			if (target != m && target->wlr_output->enabled) {
+				selmon = target;
+				break;
+			}
+		}
 	}
 
 	target = selmon;
 	selvout = target ? focusedvout(target) : NULL;
 	if (target)
 		target_vout = focusedvout(target);
+	/* Save the active workspaces before moving any of them to another output. */
+	wl_list_for_each(vout, &m->vouts, link) {
+		wssave(vout);
+		wl_list_for_each(ws, &vout->workspaces, link) {
+			if (!ws->was_orphaned) {
+				snprintf(ws->orphan_vout_name, sizeof(ws->orphan_vout_name), "%s", vout->name);
+				snprintf(ws->orphan_monitor_name, sizeof(ws->orphan_monitor_name), "%s",
+						m->wlr_output->name);
+				ws->orphan_was_active = vout->ws == ws;
+				ws->was_orphaned = true;
+			}
+		}
+	}
 	wl_list_for_each_safe(vout, vtmp, &m->vouts, link) {
 		wl_list_for_each_safe(ws, wtmp, &vout->workspaces, link) {
 			if (target_vout) {
-				if (!ws->orphan_vout_name[0])
-					snprintf(ws->orphan_vout_name, sizeof(ws->orphan_vout_name), "%s", vout->name);
-				if (!ws->orphan_monitor_name[0] && m && m->wlr_output)
-					snprintf(ws->orphan_monitor_name, sizeof(ws->orphan_monitor_name), "%s",
-							m->wlr_output->name);
-				ws->was_orphaned = true;
-				wsmoveto(ws, target_vout);
-				/* target_vout may gain focus workspace; keep pointer current */
-				target_vout = focusedvout(target);
+				wsattach(target_vout, ws);
+				if (!target_vout->ws)
+					wsactivate(target_vout, ws, 0);
 			} else {
-				wssave(vout);
 				wl_list_remove(&ws->link);
 				wl_list_init(&ws->link);
 				ws->vout = NULL;
-				ws->was_orphaned = true;
-				if (!ws->orphan_vout_name[0])
-					snprintf(ws->orphan_vout_name, sizeof(ws->orphan_vout_name), "%s", vout->name);
-				if (!ws->orphan_monitor_name[0] && m && m->wlr_output)
-					snprintf(ws->orphan_monitor_name, sizeof(ws->orphan_monitor_name), "%s",
-							m->wlr_output->name);
 			}
 		}
+		/* Detached workspaces keep their saved state, including the active one. */
+		vout->ws = NULL;
 		destroyvout(vout);
 	}
 	if (target && target_vout && !target_vout->ws)
@@ -543,6 +542,7 @@ closemon(Monitor *m)
 		if (c->mon == m)
 			setworkspace(c, c->ws);
 	}
+	selws = selvout ? selvout->ws : NULL;
 	focusclient(focustop(selmon), 1);
 	updateipc();
 }
@@ -749,7 +749,6 @@ createmon(struct wl_listener *listener, void *data)
 	for (i = 0; i < WORKSPACE_COUNT; i++) {
 		Workspace *ws = &workspaces[i];
 		VirtualOutput *target_vout;
-		Client *client;
 		/* Only reattach workspaces that were explicitly orphaned */
 		if (!ws->was_orphaned)
 			continue;
@@ -762,15 +761,16 @@ createmon(struct wl_listener *listener, void *data)
 		if (!target_vout)
 			continue;
 		wsattach(target_vout, ws);
-		wsload(target_vout, ws);
+		if (ws->orphan_was_active)
+			wsactivate(target_vout, ws, 0);
 		ws->was_orphaned = false; /* Clear the flag after reattachment */
+		ws->orphan_was_active = false;
 		ws->orphan_vout_name[0] = '\0';
 		ws->orphan_monitor_name[0] = '\0';
-		/* Update monitor pointers for all clients on this workspace */
-		wl_list_for_each(client, &clients, link) {
-			if (client->ws == ws)
-				client->mon = target_vout->mon;
-		}
+	}
+	wl_list_for_each(vout, &m->vouts, link) {
+		if (!vout->ws)
+			wsactivate(vout, wsfirst(vout), 0);
 	}
 
 	if (found_orphans) {
@@ -2144,6 +2144,7 @@ setup(void)
 				  : (LENGTH(layouts) > 1)	       ? &layouts[1]
 								       : ws->state.lt[0];
 		ws->was_orphaned = false;
+		ws->orphan_was_active = false;
 		ws->orphan_vout_name[0] = '\0';
 		ws->orphan_monitor_name[0] = '\0';
 	}
@@ -2996,8 +2997,7 @@ ipc_move_workspace_to_vout(Workspace *ws, VirtualOutput *vout)
 	if (!ws || !vout || !vout->mon)
 		return -1;
 
-	if (ws->vout != vout)
-		wsmoveto(ws, vout);
+	wsmoveto(ws, vout);
 
 	selmon = vout->mon;
 	selmon->focus_vout = vout;
@@ -3206,12 +3206,12 @@ wsfindfree(void)
 	unsigned int i;
 
 	for (i = 1; i < MIN(WORKSPACE_COUNT, 10); i++)
-		if (!workspaces[i].vout)
+		if (!workspaces[i].vout && !workspaces[i].was_orphaned)
 			return &workspaces[i];
-	if (WORKSPACE_COUNT > 0 && !workspaces[0].vout)
+	if (WORKSPACE_COUNT > 0 && !workspaces[0].vout && !workspaces[0].was_orphaned)
 		return &workspaces[0];
 	for (i = 10; i < WORKSPACE_COUNT; i++)
-		if (!workspaces[i].vout)
+		if (!workspaces[i].vout && !workspaces[i].was_orphaned)
 			return &workspaces[i];
 	return NULL;
 }
@@ -3230,7 +3230,9 @@ attachvoutworkspaces(VirtualOutput *vout, const unsigned int *workspace_ids, siz
 		if (workspace_ids[i] >= WORKSPACE_COUNT)
 			continue;
 		ws = &workspaces[workspace_ids[i]];
-		wsattach(vout, ws);
+		/* Defaults apply only to workspaces that have no current or saved home. */
+		if (!ws->vout && !ws->was_orphaned)
+			wsattach(vout, ws);
 	}
 }
 
@@ -3314,6 +3316,7 @@ void
 wsattach(VirtualOutput *vout, Workspace *ws)
 {
 	VirtualOutput *old;
+	Client *c;
 	if (!vout || !ws)
 		return;
 	if (ws->vout == vout)
@@ -3325,12 +3328,16 @@ wsattach(VirtualOutput *vout, Workspace *ws)
 			old->ws = NULL;
 		}
 		wl_list_remove(&ws->link);
-		/* activate another workspace on old vout if available */
-		if (!old->ws && !wl_list_empty(&old->workspaces))
-			wsactivate(old, wsfirst(old), 0);
 	}
 	ws->vout = vout;
 	wsinsert(vout, ws);
+	/* Every path that moves a workspace must move its windows with it. */
+	wl_list_for_each(c, &clients, link) {
+		if (c->ws == ws)
+			setworkspace(c, ws);
+	}
+	if (old && !old->ws)
+		wsactivate(old, wsfirst(old), 0);
 }
 
 static void
@@ -3378,20 +3385,20 @@ wsmoveto(Workspace *ws, VirtualOutput *vout)
 	Workspace *fallback;
 	Monitor *old_mon;
 	/* char newbuf[64], oldbuf[64]; - unused */
-	if (!ws || !vout || ws->vout == vout)
+	if (!ws || !vout)
+		return;
+	/* An explicit move replaces the home saved when a monitor disappeared. */
+	ws->was_orphaned = false;
+	ws->orphan_was_active = false;
+	ws->orphan_vout_name[0] = '\0';
+	ws->orphan_monitor_name[0] = '\0';
+	if (ws->vout == vout)
 		return;
 	old = ws->vout;
 	old_mon = old ? old->mon : NULL;
 	fallback = old ? old->ws : NULL;
 	wsattach(vout, ws);
 	wsactivate(vout, ws, 1);
-	if (ws) {
-		Client *c;
-		wl_list_for_each(c, &clients, link) {
-			if (c->ws == ws)
-				setworkspace(c, ws);
-		}
-	}
 	if (old) {
 		if (fallback && fallback != ws)
 			return;

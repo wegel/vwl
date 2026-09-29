@@ -20,6 +20,7 @@ CLANG_FORMAT ?= clang-format
 FORMAT_SRCS = client.h ipc.c ipc.h plumbing.c util.c util.h vwl.c vwl.h vwlctl.c
 FORMAT_SRCS += share.c share.h spawnrules.c spawnrules.h tabhdr.c tabhdr.h
 FORMAT_SRCS += tests/fullscreen.c tests/fullscreen-client.c
+FORMAT_SRCS += tests/workspaces.c
 VWL_OBJS = vwl.o plumbing.o util.o ipc.o share.o spawnrules.o tabhdr.o ext-foreign-toplevel-list-v1-protocol.o \
 	ext-image-capture-source-v1-protocol.o vwl-vout-image-capture-source-unstable-v1-protocol.o
 
@@ -51,8 +52,14 @@ vwlctl: vwlctl.o util.o
 vwlctl.o: vwlctl.c ipc.h util.h
 	$(CC) $(CPPFLAGS) $(TOOLCFLAGS) -o $@ -c $<
 
-check: tests/fullscreen-test
+check: tests/fullscreen-test tests/workspaces-test
 	./tests/fullscreen-test
+	./tests/workspaces-test
+
+tests/workspaces-test: tests/workspaces.o tests/fullscreen-client.o tests/xdg-shell-client-protocol.o $(VWL_OBJS)
+	$(CC) tests/workspaces.o tests/fullscreen-client.o tests/xdg-shell-client-protocol.o \
+		$(filter-out vwl.o,$(VWL_OBJS)) $(LDFLAGS) $(LDLIBS) `$(PKG_CONFIG) --libs wayland-client` -o $@
+tests/workspaces.o: tests/workspaces.c vwl.o
 
 tests/fullscreen-test: tests/fullscreen.o tests/fullscreen-client.o tests/xdg-shell-client-protocol.o $(VWL_OBJS)
 	$(CC) tests/fullscreen.o tests/fullscreen-client.o tests/xdg-shell-client-protocol.o \
@@ -120,7 +127,7 @@ update-loc:
 
 clean:
 	rm -f vwl vwlctl *.o *-protocol.h *-protocol.c
-	rm -f tests/fullscreen-test tests/*.o tests/*-protocol.h tests/*-protocol.c
+	rm -f tests/fullscreen-test tests/workspaces-test tests/*.o tests/*-protocol.h tests/*-protocol.c
 
 dist: clean
 	mkdir -p vwl-$(VERSION)

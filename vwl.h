@@ -209,6 +209,7 @@ struct Workspace {
 	char orphan_vout_name[WORKSPACE_NAME_LEN];
 	char orphan_monitor_name[WORKSPACE_NAME_LEN];
 	bool was_orphaned; /* Track if workspace was orphaned during monitor removal */
+	bool orphan_was_active;
 };
 
 struct VirtualOutput {

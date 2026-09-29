@@ -84,5 +84,11 @@ jobs:
           make clean
           make
 
-      - name: Test fullscreen with a headless compositor
+      - name: Test with a headless compositor
         run: make check
+
+      - name: Test with Xwayland installed
+        if: matrix.xwayland == '1'
+        run: |
+          pacman -S --noconfirm --needed xorg-xwayland
+          make check

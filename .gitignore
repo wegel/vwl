@@ -3,6 +3,7 @@
 vwl
 vwlctl
 /tests/fullscreen-test
+/tests/workspaces-test
 *.o
 *.log
 *-protocol.c

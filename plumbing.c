@@ -276,8 +276,10 @@ cleanuplisteners(void)
 	wl_list_remove(&new_session_lock.link);
 	share_cleanuplisteners();
 #ifdef XWAYLAND
-	wl_list_remove(&new_xwayland_surface.link);
-	wl_list_remove(&xwayland_ready.link);
+	if (xwayland) {
+		wl_list_remove(&new_xwayland_surface.link);
+		wl_list_remove(&xwayland_ready.link);
+	}
 #endif
 }
 
@@ -288,8 +290,10 @@ cleanup(void)
 	ipc_finish();
 	spawnrules_finish();
 #ifdef XWAYLAND
-	wlr_xwayland_destroy(xwayland);
-	xwayland = NULL;
+	if (xwayland) {
+		wlr_xwayland_destroy(xwayland);
+		xwayland = NULL;
+	}
 #endif
 	wl_display_destroy_clients(dpy);
 	if (child_pid > 0) {
