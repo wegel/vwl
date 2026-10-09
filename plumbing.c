@@ -1207,7 +1207,8 @@ cursorwarptohint(void)
 void
 cursorsync(void)
 {
-	Monitor *m;
+	Monitor *m, *target;
+	struct wlr_output_cursor *image;
 	double rel_x, rel_y;
 	double mm_x, mm_y;
 	double scale_x, scale_y;
@@ -1234,6 +1235,20 @@ cursorsync(void)
 
 	cursor_phys.x_mm = mm_x;
 	cursor_phys.y_mm = mm_y;
+
+	/* wlroots places every output's cursor in desktop pixels. At a seam,
+	 * that can show a fragment at the wrong height until the hotspot crosses.
+	 * Project the physical hotspot onto each screen, even while it lies just
+	 * outside that screen. Let wlroots clip the image at the output edge. */
+	if (!enable_physical_cursor_gap_jumps)
+		return;
+	wl_list_for_each(target, &mons, link) {
+		if (!target->wlr_output->enabled || target->phys.mm_per_px_x <= 0 || target->phys.mm_per_px_y <= 0)
+			continue;
+		rel_x = (mm_x - target->phys.origin_x_mm) / target->phys.mm_per_px_x;
+		rel_y = (mm_y - target->phys.origin_y_mm) / target->phys.mm_per_px_y;
+		wl_list_for_each(image, &target->wlr_output->cursors, link) wlr_output_cursor_move(image, rel_x, rel_y);
+	}
 }
 
 void
@@ -1275,7 +1290,6 @@ cursorgap(Monitor *origin, double prev_mm_x, double prev_mm_y)
 	double rel_mm_x, rel_mm_y;
 	double target_x, target_y;
 	double min_x, max_x, min_y, max_y;
-	double attempt_mm = 0.0;
 
 	if (!origin || origin->phys.width_mm <= 0 || origin->phys.height_mm <= 0)
 		return 0;
@@ -1285,13 +1299,15 @@ cursorgap(Monitor *origin, double prev_mm_x, double prev_mm_y)
 	origin_top_mm = origin->phys.origin_y_mm;
 	origin_bottom_mm = origin_top_mm + origin->phys.height_mm;
 
-	if (cursor_phys.x_mm < origin_left_mm - tolerance_mm)
+	/* Match the half-open pixel bounds: right/bottom already belong to
+	 * the next screen, including moves that land exactly on the edge. */
+	if (cursor_phys.x_mm < origin_left_mm)
 		dir = WLR_DIRECTION_LEFT;
-	else if (cursor_phys.x_mm > origin_right_mm + tolerance_mm)
+	else if (cursor_phys.x_mm >= origin_right_mm)
 		dir = WLR_DIRECTION_RIGHT;
-	else if (cursor_phys.y_mm < origin_top_mm - tolerance_mm)
+	else if (cursor_phys.y_mm < origin_top_mm)
 		dir = WLR_DIRECTION_UP;
-	else if (cursor_phys.y_mm > origin_bottom_mm + tolerance_mm)
+	else if (cursor_phys.y_mm >= origin_bottom_mm)
 		dir = WLR_DIRECTION_DOWN;
 	else
 		return 0;
@@ -1301,25 +1317,6 @@ cursorgap(Monitor *origin, double prev_mm_x, double prev_mm_y)
 		return 0;
 
 	anchor_mm = (dir == WLR_DIRECTION_LEFT || dir == WLR_DIRECTION_RIGHT) ? cursor_phys.y_mm : cursor_phys.x_mm;
-
-	switch (dir) {
-	case WLR_DIRECTION_RIGHT:
-		attempt_mm = cursor_phys.x_mm - origin_right_mm;
-		break;
-	case WLR_DIRECTION_LEFT:
-		attempt_mm = origin_left_mm - cursor_phys.x_mm;
-		break;
-	case WLR_DIRECTION_DOWN:
-		attempt_mm = cursor_phys.y_mm - origin_bottom_mm;
-		break;
-	case WLR_DIRECTION_UP:
-		attempt_mm = origin_top_mm - cursor_phys.y_mm;
-		break;
-	}
-
-	if (attempt_mm <= tolerance_mm) {
-		return 0;
-	}
 
 	wl_list_for_each(mon, &mons, link) {
 		double cand_left_mm, cand_right_mm, cand_top_mm, cand_bottom_mm, distance;

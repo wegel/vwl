@@ -20,7 +20,7 @@ CLANG_FORMAT ?= clang-format
 FORMAT_SRCS = client.h ipc.c ipc.h plumbing.c util.c util.h vwl.c vwl.h vwlctl.c
 FORMAT_SRCS += capture.c capture.h share.c share.h spawnrules.c spawnrules.h tabhdr.c tabhdr.h
 FORMAT_SRCS += tests/fullscreen.c tests/fullscreen-client.c
-FORMAT_SRCS += tests/workspaces.c tests/idle-inhibit.c tests/capture.c tests/capture-client.c tests/capture-result.h
+FORMAT_SRCS += tests/workspaces.c tests/idle-inhibit.c tests/cursor.c tests/capture.c tests/capture-client.c tests/capture-result.h
 VWL_OBJS = capture.o vwl.o plumbing.o util.o ipc.o share.o spawnrules.o tabhdr.o ext-foreign-toplevel-list-v1-protocol.o \
 	ext-image-capture-source-v1-protocol.o vwl-vout-image-capture-source-unstable-v1-protocol.o
 
@@ -53,11 +53,16 @@ vwlctl: vwlctl.o util.o
 vwlctl.o: vwlctl.c ipc.h util.h
 	$(CC) $(CPPFLAGS) $(TOOLCFLAGS) -o $@ -c $<
 
-check: tests/fullscreen-test tests/workspaces-test tests/idle-inhibit-test tests/capture-test
+check: tests/fullscreen-test tests/workspaces-test tests/idle-inhibit-test tests/capture-test tests/cursor-test
 	./tests/fullscreen-test
 	./tests/workspaces-test
 	./tests/idle-inhibit-test
 	./tests/capture-test
+	./tests/cursor-test
+
+tests/cursor-test: tests/cursor.o $(VWL_OBJS)
+	$(CC) tests/cursor.o $(filter-out vwl.o,$(VWL_OBJS)) $(LDFLAGS) $(LDLIBS) -o $@
+tests/cursor.o: tests/cursor.c vwl.o
 
 tests/workspaces-test: tests/workspaces.o tests/fullscreen-client.o tests/xdg-shell-client-protocol.o tests/idle-inhibit-client-protocol.o $(VWL_OBJS)
 	$(CC) tests/workspaces.o tests/fullscreen-client.o tests/xdg-shell-client-protocol.o tests/idle-inhibit-client-protocol.o \
@@ -158,7 +163,7 @@ update-loc:
 
 clean:
 	rm -f vwl vwlctl *.o *-protocol.h *-protocol.c
-	rm -f tests/fullscreen-test tests/workspaces-test tests/idle-inhibit-test tests/capture-test tests/*.o tests/*-protocol.h tests/*-protocol.c
+	rm -f tests/fullscreen-test tests/workspaces-test tests/idle-inhibit-test tests/capture-test tests/cursor-test tests/*.o tests/*-protocol.h tests/*-protocol.c
 
 dist: clean
 	mkdir -p vwl-$(VERSION)

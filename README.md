@@ -3,7 +3,7 @@
 wlroots-based Wayland compositor with virtual outputs and physical cursor continuity.
 Originally forked from dwl.
 
-`LOC: 7979 total, 2962 vwl.c`
+`LOC: 7971 total, 2962 vwl.c`
 
 ## Features
 
@@ -137,7 +137,10 @@ monitor fullscreen; virtual fullscreen stays active.
 
 ## Physical Cursor Continuity
 
-Seamless cursor tracking across monitor gaps. Set physical dimensions in `monrules[]`.
+Set physical dimensions in `monrules[]` to keep the pointer at the same real-world
+height or horizontal position when it crosses screens. vwl also uses these
+coordinates for the cursor image on each screen, so a fragment visible across an
+edge appears in the right place before the pointer tip crosses.
 
 ```c
 static const MonitorRule monrules[] = {
