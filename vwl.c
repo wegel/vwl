@@ -2614,7 +2614,10 @@ unmapnotify(struct wl_listener *listener, void *data)
 	}
 
 	updateipc();
+	client_surface(c)->data = NULL;
 	wlr_scene_node_destroy(&c->scene->node);
+	c->scene = NULL;
+	c->scene_surface = NULL;
 	motionnotify(0, NULL, 0, 0, 0, 0);
 }
 

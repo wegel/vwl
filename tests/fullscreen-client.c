@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <wayland-client.h>
 #include "xdg-shell-client-protocol.h"
+#include "idle-inhibit-client-protocol.h"
 
 struct test_window {
 	struct wl_surface *surface;
@@ -18,6 +19,7 @@ struct test_window {
 static struct wl_compositor *test_compositor;
 static struct wl_shm *test_shm;
 static struct xdg_wm_base *test_shell;
+static struct zwp_idle_inhibit_manager_v1 *test_idle_manager;
 
 static void
 buffer_release(void *data, struct wl_buffer *buffer)
@@ -85,6 +87,8 @@ registry_global(void *data, struct wl_registry *registry, uint32_t name, const c
 		test_compositor = wl_registry_bind(registry, name, &wl_compositor_interface, 4);
 	else if (!strcmp(interface, wl_shm_interface.name))
 		test_shm = wl_registry_bind(registry, name, &wl_shm_interface, 1);
+	else if (!strcmp(interface, zwp_idle_inhibit_manager_v1_interface.name))
+		test_idle_manager = wl_registry_bind(registry, name, &zwp_idle_inhibit_manager_v1_interface, 1);
 	else if (!strcmp(interface, xdg_wm_base_interface.name)) {
 		test_shell = wl_registry_bind(registry, name, &xdg_wm_base_interface, 1);
 		xdg_wm_base_add_listener(test_shell, &shell_listener, NULL);
@@ -123,6 +127,7 @@ fullscreen_test_client(int socket_fd, int control_fd)
 	struct wl_display *display = wl_display_connect_to_fd(socket_fd);
 	struct wl_registry *registry;
 	struct test_window primary = {0}, sibling = {0};
+	struct zwp_idle_inhibitor_v1 *inhibitor = NULL;
 	char command = 'r';
 	int i;
 
@@ -134,6 +139,26 @@ fullscreen_test_client(int socket_fd, int control_fd)
 	create_window(&primary, 1);
 	do {
 		switch (command) {
+		case 'i':
+			assert(test_idle_manager && !inhibitor);
+			inhibitor = zwp_idle_inhibit_manager_v1_create_inhibitor(test_idle_manager, primary.surface);
+			break;
+		case 'h':
+			wl_surface_attach(primary.surface, NULL, 0, 0);
+			wl_surface_commit(primary.surface);
+			break;
+		case 'm':
+			wl_surface_commit(primary.surface);
+			break;
+		case 't':
+			xdg_toplevel_destroy(primary.toplevel);
+			xdg_surface_destroy(primary.xdg);
+			break;
+		case 'x':
+			assert(inhibitor);
+			zwp_idle_inhibitor_v1_destroy(inhibitor);
+			inhibitor = NULL;
+			break;
 		case 'f':
 			xdg_toplevel_set_fullscreen(primary.toplevel, NULL);
 			break;
