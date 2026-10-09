@@ -3,7 +3,7 @@
 wlroots-based Wayland compositor with virtual outputs and physical cursor continuity.
 Originally forked from dwl.
 
-`LOC: 7630 total, 2963 vwl.c`
+`LOC: 7979 total, 2962 vwl.c`
 
 ## Features
 
@@ -42,10 +42,13 @@ Originally forked from dwl.
 make
 ```
 
-Run `make check` to test fullscreen, workspace moves, and display reconnects
-with separate headless compositors and a Wayland test app. The tests use
+Run `make check` to test fullscreen, workspace moves, display reconnects,
+keep-awake requests, and captured cursor pixels with separate headless
+compositors and Wayland test apps. The tests use
 temporary sockets and do not change your running desktop. They also require
-the `wayland-client` development files.
+the `wayland-client` development files. The capture test uses software rendering
+by default; `VWL_TEST_RENDERER=gles2 ./tests/capture-test` checks the GPU renderer
+when a render device is available.
 
 ## Running
 
@@ -209,6 +212,11 @@ systemctl --user restart xdg-desktop-portal.service xdg-desktop-portal-wlr.servi
 ```
 
 This lets the portal services bind to the current `vwl` session.
+
+Window and virtual-output shares include the actual pointer when the capture
+client requests it, including client-drawn and animated cursors. The pointer is
+clipped at the shared area's edges. Capture clients can also request frames
+without a pointer, or receive its image and position separately.
 
 Virtual-output sharing additionally requires a patched `xdg-desktop-portal-wlr`:
 `https://github.com/wegel/xdg-desktop-portal-wlr/tree/vwl-support`

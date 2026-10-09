@@ -46,6 +46,7 @@
 #include "vwl.h"
 #include "ipc.h"
 #include "share.h"
+#include "capture.h"
 #include "spawnrules.h"
 #include "util.h"
 
@@ -1214,6 +1215,7 @@ cursorsync(void)
 	if (!cursor)
 		return;
 
+	capture_update();
 	m = xytomon(cursor->x, cursor->y);
 	cursor_phys.mon = m;
 

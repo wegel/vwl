@@ -5,6 +5,7 @@ vwlctl
 /tests/fullscreen-test
 /tests/workspaces-test
 /tests/idle-inhibit-test
+/tests/capture-test
 *.o
 *.log
 *-protocol.c
