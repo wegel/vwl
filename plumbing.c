@@ -1730,16 +1730,82 @@ updatephys(Monitor *m)
 		m->phys.mm_per_px_y = height_mm / m->monitor_area.height;
 	else
 		m->phys.mm_per_px_y = 0;
+}
 
-	if (!m->phys.origin_configured) {
-		if (m->phys.mm_per_px_x > 0)
-			m->phys.origin_x_mm = m->monitor_area.x * m->phys.mm_per_px_x;
-		else
-			m->phys.origin_x_mm = 0;
-		if (m->phys.mm_per_px_y > 0)
-			m->phys.origin_y_mm = m->monitor_area.y * m->phys.mm_per_px_y;
-		else
-			m->phys.origin_y_mm = 0;
+static int
+boxstart(struct wlr_box *b, int vertical)
+{
+	return vertical ? b->y : b->x;
+}
+
+static int
+boxend(struct wlr_box *b, int vertical)
+{
+	return vertical ? b->y + b->height : b->x + b->width;
+}
+
+/* Nearest enabled monitor ending at or before m along the axis. With overlap
+ * set, only monitors sharing part of m's span on the other axis qualify. */
+static Monitor *
+physbefore(Monitor *m, int vertical, int overlap)
+{
+	Monitor *n, *best = NULL;
+	struct wlr_box *a = &m->monitor_area, *b;
+	int start = boxstart(a, vertical);
+	int end, best_end = 0, shared;
+
+	wl_list_for_each(n, &mons, link) {
+		b = &n->monitor_area;
+		if (n == m || !n->wlr_output->enabled || b->width <= 0 || b->height <= 0)
+			continue;
+		end = boxend(b, vertical);
+		shared = boxstart(a, !vertical) < boxend(b, !vertical) && boxstart(b, !vertical) < boxend(a, !vertical);
+		if (end <= start && (!overlap || shared) && (!best || end > best_end)) {
+			best = n;
+			best_end = end;
+		}
+	}
+	return best;
+}
+
+/* Each screen's own physical size covers its own span: chain through the
+ * monitor before m on this axis, else offset from a side neighbour in that
+ * neighbour's density. depth bounds the walk against dependency cycles. */
+static double
+autophysorigin(Monitor *m, int vertical, int depth)
+{
+	Monitor *n;
+	struct wlr_box *b;
+	int start = boxstart(&m->monitor_area, vertical);
+	double scale = vertical ? m->phys.mm_per_px_y : m->phys.mm_per_px_x;
+	double origin;
+
+	if (m->phys.origin_configured)
+		return vertical ? m->phys.origin_y_mm : m->phys.origin_x_mm;
+	if (depth > wl_list_length(&mons))
+		return start * scale;
+	if (!(n = physbefore(m, vertical, 1)) && !(n = physbefore(m, !vertical, 1)) &&
+			!(n = physbefore(m, vertical, 0)))
+		return start * scale;
+
+	b = &n->monitor_area;
+	origin = autophysorigin(n, vertical, depth + 1);
+	if (start < boxend(b, vertical))
+		return origin +
+		       (start - boxstart(b, vertical)) * (vertical ? n->phys.mm_per_px_y : n->phys.mm_per_px_x);
+	return origin + (vertical ? n->phys.height_mm : n->phys.width_mm) + (start - boxend(b, vertical)) * scale;
+}
+
+void
+updatephysorigins(void)
+{
+	Monitor *m;
+
+	wl_list_for_each(m, &mons, link) {
+		if (!m->wlr_output->enabled || m->phys.origin_configured)
+			continue;
+		m->phys.origin_x_mm = autophysorigin(m, 0, 0);
+		m->phys.origin_y_mm = autophysorigin(m, 1, 0);
 	}
 }
 

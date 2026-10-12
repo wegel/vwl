@@ -165,6 +165,7 @@ void outputmgrapplyortest(struct wlr_output_configuration_v1 *config, int test);
 void outputmgrtest(struct wl_listener *listener, void *data);
 void configurephys(Monitor *m, const MonitorRule *match);
 void updatephys(Monitor *m);
+void updatephysorigins(void);
 void powermgrsetmode(struct wl_listener *listener, void *data);
 void quit(const Arg *arg);
 void requeststartdrag(struct wl_listener *listener, void *data);
@@ -823,6 +824,13 @@ debugstate(const Arg *arg)
 	fprintf(f, "\n--- monitors ---\n");
 	wl_list_for_each(m, &mons, link) {
 		fprintf(f, "monitor: %s\n", m->wlr_output->name);
+		fprintf(f,
+				"  phys: width_mm=%.2f height_mm=%.2f origin_x_mm=%.2f origin_y_mm=%.2f "
+				"mm_per_px_x=%.2f mm_per_px_y=%.2f width_configured=%d height_configured=%d "
+				"origin_configured=%d\n",
+				m->phys.width_mm, m->phys.height_mm, m->phys.origin_x_mm, m->phys.origin_y_mm,
+				m->phys.mm_per_px_x, m->phys.mm_per_px_y, m->phys.width_configured,
+				m->phys.height_configured, m->phys.origin_configured);
 		fprintf(f, "  monitor_area: x=%d y=%d w=%d h=%d\n", m->monitor_area.x, m->monitor_area.y,
 				m->monitor_area.width, m->monitor_area.height);
 		fprintf(f, "  window_area: x=%d y=%d w=%d h=%d\n", m->window_area.x, m->window_area.y,
@@ -2704,6 +2712,8 @@ updatemons(struct wl_listener *listener, void *data)
 			selmon = m;
 		}
 	}
+
+	updatephysorigins();
 
 	if (!monisvalid(selmon))
 		selmon = monfirstenabled();

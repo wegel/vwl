@@ -156,6 +156,26 @@ main(void)
 	expect_image(right, 1, 200);
 	assert(!image(left)->visible);
 
+	/* Auto origins chain through each neighbour's own physical width. */
+	left->phys.origin_configured = 0;
+	right->phys.origin_configured = 0;
+	updatephysorigins();
+	assert(left->phys.origin_x_mm == 0);
+	assert(right->phys.origin_x_mm == 640);
+	assert(right->phys.origin_y_mm == 0);
+
+	/* A partially shared edge offsets in the neighbour's density. */
+	place(right, 1280, 360, 0, 0, 320, 180);
+	right->phys.origin_configured = 0;
+	updatephysorigins();
+	assert(right->phys.origin_x_mm == 640);
+	assert(right->phys.origin_y_mm == 180);
+	place(right, 640, 720, 0, 0, 320, 180);
+	right->phys.origin_configured = 0;
+	updatephysorigins();
+	assert(right->phys.origin_x_mm == 320);
+	assert(right->phys.origin_y_mm == 360);
+
 	/* Output scale and rotation change pixel dimensions, not millimetres. */
 	wlr_output_state_init(&state);
 	wlr_output_state_set_scale(&state, 1.25f);
