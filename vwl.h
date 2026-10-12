@@ -121,6 +121,7 @@ struct Client {
 	struct wlr_box geom;   /* layout-relative, includes border */
 	struct wlr_box prev;   /* before entering fullscreen, includes border */
 	struct wlr_box bounds; /* only width and height are used */
+	struct wlr_box pref;   /* preferred size at map, excludes border; only width/height used */
 	union {
 		struct wlr_xdg_surface *xdg;
 		struct wlr_xwayland_surface *xwayland;
