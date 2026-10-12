@@ -580,6 +580,20 @@ commitnotify(struct wl_listener *listener, void *data)
 		c->resize = 0;
 }
 
+/* Match a rule pattern against the connector name (e.g. "DP-6") or the
+ * kanshi-style identifier "<make> <model> <serial>". Both are substring matches. */
+static int
+outputmatches(struct wlr_output *o, const char *pattern)
+{
+	char id[256];
+
+	if (strstr(o->name, pattern))
+		return 1;
+	snprintf(id, sizeof(id), "%s %s %s", o->make ? o->make : "Unknown", o->model ? o->model : "Unknown",
+			o->serial ? o->serial : "Unknown");
+	return strstr(id, pattern) != NULL;
+}
+
 void
 createmon(struct wl_listener *listener, void *data)
 {
@@ -608,7 +622,7 @@ createmon(struct wl_listener *listener, void *data)
 	wlr_output_state_init(&state);
 	/* Initialize monitor state using configured rules */
 	for (r = monrules; r < END(monrules); r++) {
-		if (!r->name || strstr(wlr_output->name, r->name)) {
+		if (!r->name || outputmatches(wlr_output, r->name)) {
 			m->monitor_area.x = r->x;
 			m->monitor_area.y = r->y;
 			wlr_output_state_set_scale(&state, r->scale);
@@ -678,7 +692,7 @@ createmon(struct wl_listener *listener, void *data)
 		const VirtualOutputRule *vr = &vorules[i];
 		if (!vr->monitor)
 			continue;
-		if (strstr(wlr_output->name, vr->monitor))
+		if (outputmatches(wlr_output, vr->monitor))
 			matched_rules[matched_count++] = vr;
 	}
 	if (!matched_count) {
@@ -823,6 +837,8 @@ debugstate(const Arg *arg)
 	fprintf(f, "\n--- monitors ---\n");
 	wl_list_for_each(m, &mons, link) {
 		fprintf(f, "monitor: %s\n", m->wlr_output->name);
+		fprintf(f, "  identifiers: description=%s make=%s model=%s serial=%s\n", m->wlr_output->description,
+				m->wlr_output->make, m->wlr_output->model, m->wlr_output->serial);
 		fprintf(f, "  monitor_area: x=%d y=%d w=%d h=%d\n", m->monitor_area.x, m->monitor_area.y,
 				m->monitor_area.width, m->monitor_area.height);
 		fprintf(f, "  window_area: x=%d y=%d w=%d h=%d\n", m->window_area.x, m->window_area.y,
