@@ -186,6 +186,18 @@ main(void)
 	wlr_output_destroy(right->wlr_output);
 	warp(300, 300);
 	expect_image(left, 300, 300);
+	/* All screens disappear while the cursor is on the
+	 * final screen. No global may retain that freed screen or its vout. */
+	motionnotify(11, NULL, 1, 1, 1, 1);
+	assert(selmon == left && hover.mon == left);
+	assert(selvout == firstvout(left) && hover.vout == selvout);
+	wlr_output_destroy(left->wlr_output);
+	assert(!selmon && !selvout && !hover.mon && !hover.vout);
+	assert(!cursor_phys.mon && !cursor_phys.last_mon);
+	left = add_monitor("CURSOR-LEFT");
+	warp(300, 300);
+	motionnotify(11, NULL, 1, 1, 1, 1);
+	assert(cursor_phys.mon == left && cursor_phys.last_mon == left);
 	cleanup();
 	assert(rmdir(runtime) == 0);
 	puts("cursor: physical seams, gaps, scale, rotation and output removal passed");
