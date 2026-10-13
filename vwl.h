@@ -454,6 +454,7 @@ int ipc_focus_virtual_output(VirtualOutput *vout);
 int ipc_move_workspace_to_vout(Workspace *ws, VirtualOutput *vout);
 void configurephys(Monitor *m, const MonitorRule *match);
 void updatephys(Monitor *m);
+void updatephysorigins(void);
 void wsattach(VirtualOutput *vout, Workspace *ws);
 
 /* From client.h - might need to include this properly later */

@@ -156,6 +156,28 @@ main(void)
 	expect_image(right, 1, 200);
 	assert(!image(left)->visible);
 
+	/* Auto origins chain through each neighbour's own physical width. */
+	left->phys.origin_configured = 0;
+	right->phys.origin_configured = 0;
+	updatephysorigins();
+	assert(left->phys.origin_x_mm == 0);
+	assert(right->phys.origin_x_mm == 640);
+	assert(right->phys.origin_y_mm == 0);
+
+	/* A partially shared edge offsets in the neighbour's density. */
+	place(right, 1280, 360, 0, 0, 320, 180);
+	right->phys.origin_configured = 0;
+	updatephysorigins();
+	assert(right->phys.origin_x_mm == 640);
+	assert(right->phys.origin_y_mm == 180);
+	place(right, 640, 720, 0, 0, 320, 180);
+	right->phys.origin_configured = 0;
+	updatephysorigins();
+	assert(right->phys.origin_x_mm == 320);
+	assert(right->phys.origin_y_mm == 360);
+
+	place(left, 0, 0, 0, 0, 640, 360);
+
 	/* Output scale and rotation change pixel dimensions, not millimetres. */
 	wlr_output_state_init(&state);
 	wlr_output_state_set_scale(&state, 1.25f);
@@ -182,10 +204,55 @@ main(void)
 	expect_image(right, -1 / right->phys.mm_per_px_x, 50 / right->phys.mm_per_px_y);
 	assert(i->enabled);
 
+	wlr_output_state_init(&state);
+	wlr_output_state_set_scale(&state, 1);
+	wlr_output_state_set_transform(&state, WL_OUTPUT_TRANSFORM_NORMAL);
+	assert(wlr_output_commit_state(right->wlr_output, &state));
+	wlr_output_state_finish(&state);
+
+	/* an explicit right screen anchors its automatic left neighbour. */
+	place(left, 0, 0, 0, 0, 640, 360);
+	place(right, 1280, 0, 500, 0, 320, 180);
+	left->phys.origin_configured = 0;
+	updatephysorigins();
+	assert(left->phys.origin_x_mm == -140);
+	warp(1100, 100);
+	assert(image(left)->visible && !image(right)->visible);
+
+	/* a 2x2 grid, with a physically larger top-left screen. */
+	{
+		Monitor *bottom_left = add_monitor("BOTTOM-LEFT");
+		Monitor *bottom_right = add_monitor("BOTTOM-RIGHT");
+		place(left, 0, 0, 0, 0, 640, 360);
+		place(right, 1280, 0, 0, 0, 320, 180);
+		place(bottom_left, 0, 720, 0, 0, 320, 180);
+		place(bottom_right, 1280, 720, 0, 0, 320, 180);
+		left->phys.origin_configured = right->phys.origin_configured = 0;
+		bottom_left->phys.origin_configured = bottom_right->phys.origin_configured = 0;
+		updatephysorigins();
+		warp(800, 500);
+		assert(image(left)->visible);
+		assert(!image(right)->visible && !image(bottom_left)->visible && !image(bottom_right)->visible);
+		wlr_output_destroy(bottom_right->wlr_output);
+		wlr_output_destroy(bottom_left->wlr_output);
+	}
+
 	/* Removing a projected output must not leave stale monitor pointers. */
 	wlr_output_destroy(right->wlr_output);
 	warp(300, 300);
 	expect_image(left, 300, 300);
+	/* All screens disappear while the cursor is on the
+	 * final screen. No global may retain that freed screen or its vout. */
+	motionnotify(11, NULL, 1, 1, 1, 1);
+	assert(selmon == left && hover.mon == left);
+	assert(selvout == firstvout(left) && hover.vout == selvout);
+	wlr_output_destroy(left->wlr_output);
+	assert(!selmon && !selvout && !hover.mon && !hover.vout);
+	assert(!cursor_phys.mon && !cursor_phys.last_mon);
+	left = add_monitor("CURSOR-LEFT");
+	warp(300, 300);
+	motionnotify(11, NULL, 1, 1, 1, 1);
+	assert(cursor_phys.mon == left && cursor_phys.last_mon == left);
 	cleanup();
 	assert(rmdir(runtime) == 0);
 	puts("cursor: physical seams, gaps, scale, rotation and output removal passed");
