@@ -165,6 +165,7 @@ void outputmgrapplyortest(struct wlr_output_configuration_v1 *config, int test);
 void outputmgrtest(struct wl_listener *listener, void *data);
 void configurephys(Monitor *m, const MonitorRule *match);
 void updatephys(Monitor *m);
+void updatephysorigins(void);
 void powermgrsetmode(struct wl_listener *listener, void *data);
 void quit(const Arg *arg);
 void requeststartdrag(struct wl_listener *listener, void *data);
@@ -479,6 +480,19 @@ cleanupmon(struct wl_listener *listener, void *data)
 
 	closemon(m);
 	wlr_scene_node_destroy(&m->fullscreen_bg->node);
+
+	/* closemon() only repairs selmon while it still points at m, and the
+	 * re-entrant updatemons() above can hand it back. Drop every global
+	 * reference before the Monitor goes away. */
+	if (selmon == m)
+		selmon = monfirstenabled();
+	if (hover.mon == m)
+		hover.mon = NULL;
+	if (cursor_phys.mon == m)
+		cursor_phys.mon = NULL;
+	if (cursor_phys.last_mon == m)
+		cursor_phys.last_mon = NULL;
+
 	free(m);
 }
 
@@ -823,6 +837,13 @@ debugstate(const Arg *arg)
 	fprintf(f, "\n--- monitors ---\n");
 	wl_list_for_each(m, &mons, link) {
 		fprintf(f, "monitor: %s\n", m->wlr_output->name);
+		fprintf(f,
+				"  phys: width_mm=%.2f height_mm=%.2f origin_x_mm=%.2f origin_y_mm=%.2f "
+				"mm_per_px_x=%.2f mm_per_px_y=%.2f width_configured=%d height_configured=%d "
+				"origin_configured=%d\n",
+				m->phys.width_mm, m->phys.height_mm, m->phys.origin_x_mm, m->phys.origin_y_mm,
+				m->phys.mm_per_px_x, m->phys.mm_per_px_y, m->phys.width_configured,
+				m->phys.height_configured, m->phys.origin_configured);
 		fprintf(f, "  monitor_area: x=%d y=%d w=%d h=%d\n", m->monitor_area.x, m->monitor_area.y,
 				m->monitor_area.width, m->monitor_area.height);
 		fprintf(f, "  window_area: x=%d y=%d w=%d h=%d\n", m->window_area.x, m->window_area.y,
@@ -2713,6 +2734,8 @@ updatemons(struct wl_listener *listener, void *data)
 		}
 	}
 
+	updatephysorigins();
+
 	if (!monisvalid(selmon))
 		selmon = monfirstenabled();
 
@@ -2845,6 +2868,7 @@ void
 xytonode(double x, double y, struct wlr_surface **psurface, Client **pc, LayerSurface **pl, double *nx, double *ny)
 {
 	struct wlr_scene_node *node, *pnode;
+	struct wlr_scene_surface *scene_surface;
 	struct wlr_surface *surface = NULL;
 	Client *c = NULL;
 	LayerSurface *l = NULL;
@@ -2854,13 +2878,15 @@ xytonode(double x, double y, struct wlr_surface **psurface, Client **pc, LayerSu
 		if (!(node = wlr_scene_node_at(&layers[layer]->node, x, y, nx, ny)))
 			continue;
 
-		if (node->type == WLR_SCENE_NODE_BUFFER)
-			surface = wlr_scene_surface_try_from_buffer(wlr_scene_buffer_from_node(node))->surface;
-		/* Walk the tree to find a node that knows the client */
-		for (pnode = node; pnode && !c; pnode = &pnode->parent->node) c = pnode->data;
+		if (node->type == WLR_SCENE_NODE_BUFFER &&
+				(scene_surface = wlr_scene_surface_try_from_buffer(wlr_scene_buffer_from_node(node))))
+			surface = scene_surface->surface;
+		/* Backgrounds and compositor-drawn buffers need not have an owner.
+		 * Stop at the root instead of accessing its nonexistent parent. */
+		for (pnode = node; pnode && !c; pnode = pnode->parent ? &pnode->parent->node : NULL) c = pnode->data;
 		if (c && c->type == LayerShell) {
+			l = (LayerSurface *)c;
 			c = NULL;
-			l = pnode->data;
 		}
 	}
 
@@ -3170,6 +3196,10 @@ destroyvout(VirtualOutput *vout)
 	wl_list_remove(&vout->link);
 	if (m && m->focus_vout == vout)
 		m->focus_vout = firstvout(m);
+	if (selvout == vout)
+		selvout = NULL;
+	if (hover.vout == vout)
+		hover.vout = NULL;
 	free(vout);
 }
 

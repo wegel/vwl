@@ -18,10 +18,10 @@ LDLIBS    = `$(PKG_CONFIG) --libs $(PKGS)` $(WLR_LIBS) -lm $(LIBS)
 TOOLCFLAGS = -I. $(DWLDEVCFLAGS) $(CFLAGS)
 CLANG_FORMAT ?= clang-format
 FORMAT_SRCS = client.h ipc.c ipc.h plumbing.c util.c util.h vwl.c vwl.h vwlctl.c
-FORMAT_SRCS += capture.c capture.h share.c share.h spawnrules.c spawnrules.h tabhdr.c tabhdr.h
-FORMAT_SRCS += tests/fullscreen.c tests/fullscreen-client.c
+FORMAT_SRCS += physical.c tests/physical.c capture.c capture.h share.c share.h spawnrules.c spawnrules.h tabhdr.c tabhdr.h
+FORMAT_SRCS += tests/hit.c tests/fullscreen.c tests/fullscreen-client.c
 FORMAT_SRCS += tests/workspaces.c tests/idle-inhibit.c tests/cursor.c tests/capture.c tests/capture-client.c tests/capture-result.h
-VWL_OBJS = capture.o vwl.o plumbing.o util.o ipc.o share.o spawnrules.o tabhdr.o ext-foreign-toplevel-list-v1-protocol.o \
+VWL_OBJS = physical.o capture.o vwl.o plumbing.o util.o ipc.o share.o spawnrules.o tabhdr.o ext-foreign-toplevel-list-v1-protocol.o \
 	ext-image-capture-source-v1-protocol.o vwl-vout-image-capture-source-unstable-v1-protocol.o
 
 all: vwl vwlctl
@@ -37,9 +37,15 @@ vwl: $(VWL_OBJS)
 vwl.o: vwl.c vwl.h client.h config.h config.mk cursor-shape-v1-protocol.h \
 	pointer-constraints-unstable-v1-protocol.h share.h spawnrules.h tabhdr.h wlr-layer-shell-unstable-v1-protocol.h \
 	wlr-output-power-management-unstable-v1-protocol.h xdg-shell-protocol.h ipc.h
-plumbing.o: plumbing.c vwl.h ipc.h capture.h share.h spawnrules.h util.h config.h
+plumbing.o: plumbing.c vwl.h ipc.h capture.h share.h spawnrules.h util.h config.h \
+	cursor-shape-v1-protocol.h wlr-output-power-management-unstable-v1-protocol.h
 ipc.o: ipc.c vwl.h ipc.h spawnrules.h util.h
+physical.o: physical.c vwl.h util.h
 capture.o: capture.c capture.h vwl.h
+# vwl.h includes wlroots headers which need these generated protocol enums.
+# Every consumer must wait for them, including in a clean parallel build.
+physical.o capture.o vwl.o plumbing.o ipc.o share.o spawnrules.o tabhdr.o: \
+	wlr-layer-shell-unstable-v1-protocol.h pointer-constraints-unstable-v1-protocol.h xdg-shell-protocol.h
 share.o: share.c vwl.h share.h capture.h util.h vwl-vout-image-capture-source-unstable-v1-protocol.h
 spawnrules.o: spawnrules.c vwl.h spawnrules.h util.h
 tabhdr.o: tabhdr.c vwl.h tabhdr.h util.h
@@ -53,12 +59,22 @@ vwlctl: vwlctl.o util.o
 vwlctl.o: vwlctl.c ipc.h util.h
 	$(CC) $(CPPFLAGS) $(TOOLCFLAGS) -o $@ -c $<
 
-check: tests/fullscreen-test tests/workspaces-test tests/idle-inhibit-test tests/capture-test tests/cursor-test
+check: tests/hit-test tests/physical-test tests/fullscreen-test tests/workspaces-test tests/idle-inhibit-test tests/capture-test tests/cursor-test
 	./tests/fullscreen-test
 	./tests/workspaces-test
 	./tests/idle-inhibit-test
 	./tests/capture-test
 	./tests/cursor-test
+	./tests/physical-test
+	./tests/hit-test
+
+tests/hit-test: tests/hit.o $(VWL_OBJS)
+	$(CC) tests/hit.o $(filter-out vwl.o,$(VWL_OBJS)) $(LDFLAGS) $(LDLIBS) -o $@
+tests/hit.o: tests/hit.c vwl.o
+
+tests/physical-test: tests/physical.o physical.o util.o
+	$(CC) tests/physical.o physical.o util.o $(LDFLAGS) $(LDLIBS) -o $@
+tests/physical.o: tests/physical.c physical.o
 
 tests/cursor-test: tests/cursor.o $(VWL_OBJS)
 	$(CC) tests/cursor.o $(filter-out vwl.o,$(VWL_OBJS)) $(LDFLAGS) $(LDLIBS) -o $@
@@ -163,12 +179,12 @@ update-loc:
 
 clean:
 	rm -f vwl vwlctl *.o *-protocol.h *-protocol.c
-	rm -f tests/fullscreen-test tests/workspaces-test tests/idle-inhibit-test tests/capture-test tests/cursor-test tests/*.o tests/*-protocol.h tests/*-protocol.c
+	rm -f tests/fullscreen-test tests/workspaces-test tests/idle-inhibit-test tests/capture-test tests/cursor-test tests/physical-test tests/hit-test tests/*.o tests/*-protocol.h tests/*-protocol.c
 
 dist: clean
 	mkdir -p vwl-$(VERSION)
 	cp -R .clang-format .clang-format-ignore LICENSE* Makefile CHANGELOG.md README.md client.h config.def.h \
-		config.mk docs ipc.c ipc.h protocols capture.c capture.h share.c share.h spawnrules.c spawnrules.h tabhdr.c tabhdr.h tests vwl.c vwl.h vwlctl.c util.c util.h vwl.desktop VWL_FEATURES.md \
+		config.mk docs ipc.c ipc.h protocols physical.c capture.c capture.h share.c share.h spawnrules.c spawnrules.h tabhdr.c tabhdr.h tests vwl.c vwl.h vwlctl.c util.c util.h vwl.desktop VWL_FEATURES.md \
 		vwl-$(VERSION)
 	tar -caf vwl-$(VERSION).tar.gz vwl-$(VERSION)
 	rm -rf vwl-$(VERSION)
