@@ -3,7 +3,7 @@
 wlroots-based Wayland compositor with virtual outputs and physical cursor continuity.
 Originally forked from dwl.
 
-`LOC: 7975 total, 2966 vwl.c`
+`LOC: 8185 total, 2989 vwl.c`
 
 ## Features
 
@@ -141,6 +141,15 @@ Set physical dimensions in `monrules[]` to keep the pointer at the same real-wor
 height or horizontal position when it crosses screens. vwl also uses these
 coordinates for the cursor image on each screen, so a fragment visible across an
 edge appears in the right place before the pointer tip crosses.
+
+Without explicit origins, vwl places each screen beside a neighbour using their
+physical sizes. Explicit origins anchor nearby automatic screens. vwl keeps
+automatic screens from overlapping, but desktop pixels cannot describe every
+mixed-density layout exactly. Set `origin_is_set` and `x_mm`/`y_mm` on each screen
+when you need to match its exact position on your desk. Explicit origins are
+never moved, even if they overlap. Rotated screens need physical dimensions in
+the orientation in which you use them.
+
 
 ```c
 static const MonitorRule monrules[] = {

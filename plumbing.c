@@ -823,6 +823,13 @@ outputmgrapplyortest(struct wlr_output_configuration_v1 *config, int test)
 		Monitor *m = wlr_output->data;
 		struct wlr_output_state state;
 
+		/* An output we don't manage: createmon() bailed on it, or it is
+		 * being torn down. Nothing here can be applied to it. */
+		if (!m) {
+			ok = 0;
+			continue;
+		}
+
 		/* Ensure displays previously disabled by wlr-output-power-management-v1
 		 * are properly handled*/
 		m->asleep = 0;
@@ -939,6 +946,12 @@ createlayersurface(struct wl_listener *listener, void *data)
 			wlr_layer_surface_v1_destroy(layer_surface);
 			return;
 		}
+	}
+
+	/* The client may name an output we already tore down. */
+	if (!layer_surface->output->data) {
+		wlr_layer_surface_v1_destroy(layer_surface);
+		return;
 	}
 
 	l = layer_surface->data = ecalloc(1, sizeof(*l));
@@ -1730,17 +1743,6 @@ updatephys(Monitor *m)
 		m->phys.mm_per_px_y = height_mm / m->monitor_area.height;
 	else
 		m->phys.mm_per_px_y = 0;
-
-	if (!m->phys.origin_configured) {
-		if (m->phys.mm_per_px_x > 0)
-			m->phys.origin_x_mm = m->monitor_area.x * m->phys.mm_per_px_x;
-		else
-			m->phys.origin_x_mm = 0;
-		if (m->phys.mm_per_px_y > 0)
-			m->phys.origin_y_mm = m->monitor_area.y * m->phys.mm_per_px_y;
-		else
-			m->phys.origin_y_mm = 0;
-	}
 }
 
 void
