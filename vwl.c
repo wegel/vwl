@@ -594,6 +594,28 @@ commitnotify(struct wl_listener *listener, void *data)
 		c->resize = 0;
 }
 
+/* Match a rule pattern against the connector name (e.g. "DP-6") or the
+ * kanshi-style identifier "<make> <model> <serial>". Both are substring matches. */
+static int
+outputmatches(struct wlr_output *o, const char *pattern)
+{
+	const char *make = o->make ? o->make : "Unknown";
+	const char *model = o->model ? o->model : "Unknown";
+	const char *serial = o->serial ? o->serial : "Unknown";
+	char *id;
+	size_t size;
+	int matched;
+
+	if (strstr(o->name, pattern))
+		return 1;
+	size = strlen(make) + strlen(model) + strlen(serial) + 3;
+	id = ecalloc(size, 1);
+	snprintf(id, size, "%s %s %s", make, model, serial);
+	matched = strstr(id, pattern) != NULL;
+	free(id);
+	return matched;
+}
+
 void
 createmon(struct wl_listener *listener, void *data)
 {
@@ -622,7 +644,7 @@ createmon(struct wl_listener *listener, void *data)
 	wlr_output_state_init(&state);
 	/* Initialize monitor state using configured rules */
 	for (r = monrules; r < END(monrules); r++) {
-		if (!r->name || strstr(wlr_output->name, r->name)) {
+		if (!r->name || outputmatches(wlr_output, r->name)) {
 			m->monitor_area.x = r->x;
 			m->monitor_area.y = r->y;
 			wlr_output_state_set_scale(&state, r->scale);
@@ -692,7 +714,7 @@ createmon(struct wl_listener *listener, void *data)
 		const VirtualOutputRule *vr = &vorules[i];
 		if (!vr->monitor)
 			continue;
-		if (strstr(wlr_output->name, vr->monitor))
+		if (outputmatches(wlr_output, vr->monitor))
 			matched_rules[matched_count++] = vr;
 	}
 	if (!matched_count) {
@@ -837,6 +859,11 @@ debugstate(const Arg *arg)
 	fprintf(f, "\n--- monitors ---\n");
 	wl_list_for_each(m, &mons, link) {
 		fprintf(f, "monitor: %s\n", m->wlr_output->name);
+		fprintf(f, "  identifiers: description=%s make=%s model=%s serial=%s\n",
+				m->wlr_output->description ? m->wlr_output->description : "Unknown",
+				m->wlr_output->make ? m->wlr_output->make : "Unknown",
+				m->wlr_output->model ? m->wlr_output->model : "Unknown",
+				m->wlr_output->serial ? m->wlr_output->serial : "Unknown");
 		fprintf(f,
 				"  phys: width_mm=%.2f height_mm=%.2f origin_x_mm=%.2f origin_y_mm=%.2f "
 				"mm_per_px_x=%.2f mm_per_px_y=%.2f width_configured=%d height_configured=%d "

@@ -74,7 +74,11 @@ static const Layout layouts[] = {
  * https://gitlab.freedesktop.org/xorg/xserver/-/issues/899
  *
  * The optional phys block specifies physical dimensions and origin in
- * millimetres. Leave fields at zero (or omit the block) to auto-detect. */
+ * millimetres. Leave fields at zero (or omit the block) to auto-detect.
+ * name is a substring matched against the connector ("DP-6") or the kanshi-style
+ * "<make> <model> <serial>" identifier ("Dell Inc. DELL U2720Q ABC1234"); existing connector rules
+ * keep working. Use the serial to distinguish identical models. The same
+ * applies to the monitor field of vorules. Run `wlr-randr` to see both. */
 /* NOTE: ALWAYS add a fallback rule, even if you are completely sure it won't be used */
 static const MonitorRule monrules[] = {
 	/* name       scale rotate/reflect                x    y    phys */
