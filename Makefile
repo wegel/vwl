@@ -37,9 +37,14 @@ vwl: $(VWL_OBJS)
 vwl.o: vwl.c vwl.h client.h config.h config.mk cursor-shape-v1-protocol.h \
 	pointer-constraints-unstable-v1-protocol.h share.h spawnrules.h tabhdr.h wlr-layer-shell-unstable-v1-protocol.h \
 	wlr-output-power-management-unstable-v1-protocol.h xdg-shell-protocol.h ipc.h
-plumbing.o: plumbing.c vwl.h ipc.h capture.h share.h spawnrules.h util.h config.h
+plumbing.o: plumbing.c vwl.h ipc.h capture.h share.h spawnrules.h util.h config.h \
+	cursor-shape-v1-protocol.h wlr-output-power-management-unstable-v1-protocol.h
 ipc.o: ipc.c vwl.h ipc.h spawnrules.h util.h
 capture.o: capture.c capture.h vwl.h
+# vwl.h includes wlroots headers which need these generated protocol enums.
+# Every consumer must wait for them, including in a clean parallel build.
+capture.o vwl.o plumbing.o ipc.o share.o spawnrules.o tabhdr.o: \
+	wlr-layer-shell-unstable-v1-protocol.h pointer-constraints-unstable-v1-protocol.h xdg-shell-protocol.h
 share.o: share.c vwl.h share.h capture.h util.h vwl-vout-image-capture-source-unstable-v1-protocol.h
 spawnrules.o: spawnrules.c vwl.h spawnrules.h util.h
 tabhdr.o: tabhdr.c vwl.h tabhdr.h util.h
