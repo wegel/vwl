@@ -2,6 +2,7 @@
 /patches/
 vwl
 vwlctl
+/tests/dialogs-test
 /tests/fullscreen-test
 /tests/workspaces-test
 /tests/idle-inhibit-test

@@ -3,7 +3,7 @@
 wlroots-based Wayland compositor with virtual outputs and physical cursor continuity.
 Originally forked from dwl.
 
-`LOC: 8204 total, 3008 vwl.c`
+`LOC: 8223 total, 3027 vwl.c`
 
 ## Features
 
@@ -13,6 +13,7 @@ Originally forked from dwl.
 - tabbed layout
 - fullscreen modes (virtual/monitor)
 - per-workspace layout state
+- child dialogs centered over their parent window
 - XWayland support
 
 ## Keybinds
@@ -42,7 +43,7 @@ Originally forked from dwl.
 make
 ```
 
-Run `make check` to test fullscreen, workspace moves, display reconnects,
+Run `make check` to test child dialogs, fullscreen, workspace moves, display reconnects,
 keep-awake requests, and captured cursor pixels with separate headless
 compositors and Wayland test apps. The tests use
 temporary sockets and do not change your running desktop. They also require
@@ -134,6 +135,14 @@ workspace still enters fullscreen, removing its border and letting the app
 hide its own controls. Floating windows regain their original size when
 fullscreen ends. Opening another ordinary window in the same workspace exits
 monitor fullscreen; virtual fullscreen stays active.
+
+## Child Dialogs
+
+vwl opens floating child dialogs centered over their parent, keeping them inside
+the parent’s virtual output when they fit. Larger dialogs keep their requested
+size and start at the output’s top-left corner. XWayland dialogs keep their
+requested screen position unless it is `(0, 0)`, which uses the same centering
+rule. vwl places dialogs when they open; later redraws do not recenter them.
 
 ## Physical Cursor Continuity
 

@@ -14,6 +14,7 @@ struct test_window {
 	struct xdg_surface *xdg;
 	struct xdg_toplevel *toplevel;
 	int width, height;
+	int shadow;
 };
 
 static struct wl_compositor *test_compositor;
@@ -36,18 +37,21 @@ surface_configure(void *data, struct xdg_surface *surface, uint32_t serial)
 	struct wl_shm_pool *pool;
 	struct wl_buffer *buffer;
 	FILE *file = tmpfile();
-	int size = window->width * window->height * 4;
+	int width = window->width + 2 * window->shadow;
+	int height = window->height + 2 * window->shadow;
+	int size = width * height * 4;
 
 	assert(file && ftruncate(fileno(file), size) == 0);
 	pool = wl_shm_create_pool(test_shm, fileno(file), size);
-	buffer = wl_shm_pool_create_buffer(
-			pool, 0, window->width, window->height, window->width * 4, WL_SHM_FORMAT_XRGB8888);
+	buffer = wl_shm_pool_create_buffer(pool, 0, width, height, width * 4, WL_SHM_FORMAT_XRGB8888);
 	wl_buffer_add_listener(buffer, &buffer_listener, NULL);
 	wl_shm_pool_destroy(pool);
 	fclose(file);
+	if (window->shadow)
+		xdg_surface_set_window_geometry(surface, window->shadow, window->shadow, window->width, window->height);
 	xdg_surface_ack_configure(surface, serial);
 	wl_surface_attach(window->surface, buffer, 0, 0);
-	wl_surface_damage(window->surface, 0, 0, window->width, window->height);
+	wl_surface_damage(window->surface, 0, 0, width, height);
 	wl_surface_commit(window->surface);
 }
 
@@ -164,6 +168,17 @@ fullscreen_test_client(int socket_fd, int control_fd)
 			break;
 		case 'u':
 			xdg_toplevel_unset_fullscreen(primary.toplevel);
+			break;
+		case 'p':
+		case 's':
+		case 'o':
+			create_window(&sibling, 0);
+			sibling.shadow = command == 's' ? 12 : 0;
+			if (command == 'o') {
+				sibling.width = 2000;
+				sibling.height = 1500;
+			}
+			xdg_toplevel_set_parent(sibling.toplevel, primary.toplevel);
 			break;
 		case 'n':
 			create_window(&sibling, 0);

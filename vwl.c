@@ -98,6 +98,7 @@ static const float *bordercolorfor(Client *c, int focused);
 static void updatebordercolor(Client *c, int focused);
 static void updateborderwidth(Client *c, int preserve_content);
 static void placefloating(Client *c);
+static void placechild(Client *c, Client *parent, Workspace *ws);
 static pid_t spawn_argv(const char *const argv[]);
 void moveresize(const Arg *arg);
 static void setfloating(Client *c, int floating);
@@ -1006,6 +1007,28 @@ updateborderwidth(Client *c, int preserve_content)
 	resize(c, geo, 0);
 }
 
+/* Place a new dialog once, before setworkspace() displays it. */
+static void
+placechild(Client *c, Client *parent, Workspace *ws)
+{
+	VirtualOutput *vout = ws ? ws->vout : NULL;
+	Monitor *mon = vout ? vout->mon : parent->mon;
+	struct wlr_box area;
+
+	/* X11 supplies screen coordinates; xdg geometry offsets are surface-local. */
+	if (!c->isfloating || (client_is_x11(c) && (c->geom.x != 0 || c->geom.y != 0)))
+		return;
+	c->geom.x = parent->geom.x + (parent->geom.width - c->geom.width) / 2;
+	c->geom.y = parent->geom.y + (parent->geom.height - c->geom.height) / 2;
+	if (!mon)
+		return;
+	area = vout && vout->layout_geom.width > 0 && vout->layout_geom.height > 0 ? vout->layout_geom
+										   : mon->window_area;
+	/* Keep the whole dialog visible if it fits; otherwise expose its top left. */
+	c->geom.x = MAX(area.x, MIN(c->geom.x, area.x + area.width - c->geom.width));
+	c->geom.y = MAX(area.y, MIN(c->geom.y, area.y + area.height - c->geom.height));
+}
+
 static void
 placefloating(Client *c)
 {
@@ -1606,6 +1629,7 @@ mapnotify(struct wl_listener *listener, void *data)
 		spawnrules_forget(c);
 		if (!target_ws && p->mon)
 			target_ws = MON_FOCUS_WS(p->mon);
+		placechild(c, p, target_ws);
 		setworkspace(c, target_ws);
 	} else if (!spawnrules_apply(c)) {
 		applyrules(c);
