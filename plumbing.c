@@ -1743,17 +1743,6 @@ updatephys(Monitor *m)
 		m->phys.mm_per_px_y = height_mm / m->monitor_area.height;
 	else
 		m->phys.mm_per_px_y = 0;
-
-	if (!m->phys.origin_configured) {
-		if (m->phys.mm_per_px_x > 0)
-			m->phys.origin_x_mm = m->monitor_area.x * m->phys.mm_per_px_x;
-		else
-			m->phys.origin_x_mm = 0;
-		if (m->phys.mm_per_px_y > 0)
-			m->phys.origin_y_mm = m->monitor_area.y * m->phys.mm_per_px_y;
-		else
-			m->phys.origin_y_mm = 0;
-	}
 }
 
 void
