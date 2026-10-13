@@ -6,6 +6,7 @@ vwlctl
 /tests/workspaces-test
 /tests/idle-inhibit-test
 /tests/capture-test
+/tests/hit-test
 /tests/physical-test
 /tests/cursor-test
 *.o
