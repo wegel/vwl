@@ -48,6 +48,33 @@ command(int fd, char cmd, uint32_t vout_id)
 	return result;
 }
 
+/* Force the capture client to submit a buffer allocated before the resize. */
+static struct capture_result
+resize_capture(int fd, Client *c, int floating)
+{
+	struct capture_result result;
+	struct wlr_box box = c->geom;
+	char ack = 'a';
+	assert(write(fd, &ack, 1) == 1);
+	receive(fd, &ack, 1);
+	assert(ack == 'a');
+	setfloating(c, floating);
+	if (floating) {
+		/* The default config preserves size when toggling floating. */
+		box.width /= 2;
+		box.height /= 2;
+		resize(c, box, 0);
+	}
+	assert(write(fd, &ack, 1) == 1);
+	receive(fd, &result, sizeof(result));
+	receive(fd, &ack, 1);
+	assert(ack == 'a' && result.retries == 1);
+	assert(result.painted.width == client_surface(c)->current.width);
+	assert(result.painted.height == client_surface(c)->current.height);
+	assert(result.clean.width == result.painted.width && result.clean.height == result.painted.height);
+	return result;
+}
+
 struct color_buffer {
 	struct wlr_buffer base;
 	uint32_t *pixels;
@@ -230,6 +257,25 @@ main(void)
 	command(control[0], 'd', 0);
 	result = command(control[0], 's', 0);
 	assert(result.painted.red == 48 && result.clean.red == 0);
+	/* A portal can still submit an old-size buffer after a window resizes.
+	 * It must receive a retryable error, then current pixels at the new size. */
+	setfloating(c, 0);
+	command(control[0], 'b', 0);
+	result = command(control[0], 'c', 0);
+	width = result.clean.width;
+	height = result.clean.height;
+	wlr_cursor_unset_image(cursor);
+	popup = wlr_scene_rect_create(&c->image_capture_scene->tree, 31, 23, (float[4]){0, 1, 0, 1});
+	result = resize_capture(control[0], c, 1);
+	assert(result.clean.width != width || result.clean.height != height);
+	assert(result.clean.green == 31 * 23 && result.painted.green == 31 * 23);
+	wlr_scene_rect_set_size(popup, 19, 17);
+	result = command(control[0], 'c', 0);
+	assert(result.clean.green == 19 * 17 && result.painted.green == 19 * 17);
+	result = resize_capture(control[0], c, 0);
+	assert(result.clean.width == width && result.clean.height == height);
+	assert(result.clean.green == 19 * 17 && result.painted.green == 19 * 17);
+	wlr_scene_node_destroy(&popup->node);
 	/* Unmapping must stop all three streams, even with an update queued. */
 	move_pointer(c, 40, 40);
 	command(control[0], 't', 0);
@@ -241,6 +287,6 @@ main(void)
 	wlr_buffer_drop(green);
 	cleanup();
 	assert(rmdir(runtime) == 0);
-	puts("capture: pixel, cursor mode, scaling and lifetime checks passed");
+	puts("capture: pixel, cursor mode, scaling, resize retry and lifetime checks passed");
 	return 0;
 }

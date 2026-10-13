@@ -199,8 +199,8 @@ frame_ready(void *data, struct ext_image_copy_capture_frame_v1 *f)
 static void
 frame_failed(void *data, struct ext_image_copy_capture_frame_v1 *f, uint32_t why)
 {
-	fprintf(stderr, "capture failed: %u\n", why);
-	abort();
+	assert(why == EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_BUFFER_CONSTRAINTS);
+	*(int *)data = -1;
 }
 static const struct ext_image_copy_capture_frame_v1_listener frame_listener = {
 		.transform = frame_transform,
@@ -239,7 +239,7 @@ static const struct ext_image_copy_capture_cursor_session_v1_listener pointer_li
 };
 
 static struct capture_pixels
-snapshot(struct wl_display *display, struct test_cast *cast)
+snapshot_once(struct wl_display *display, struct test_cast *cast, int synchronize_fd)
 {
 	struct capture_pixels pixels = {.width = cast->width, .height = cast->height, .x = INT_MAX, .y = INT_MAX};
 	struct ext_image_copy_capture_frame_v1 *frame;
@@ -250,6 +250,8 @@ snapshot(struct wl_display *display, struct test_cast *cast)
 	size_t size = (size_t)cast->width * cast->height * bpp;
 	unsigned char *data;
 	int ready = 0, x, y;
+	uint32_t format = cast->format;
+	char ack;
 
 	assert(cast->done && !cast->stopped && size && file);
 	assert(ftruncate(fileno(file), size) == 0);
@@ -262,15 +264,26 @@ snapshot(struct wl_display *display, struct test_cast *cast)
 	ext_image_copy_capture_frame_v1_add_listener(frame, &frame_listener, &ready);
 	ext_image_copy_capture_frame_v1_attach_buffer(frame, buffer);
 	ext_image_copy_capture_frame_v1_damage_buffer(frame, 0, 0, cast->width, cast->height);
+	if (synchronize_fd >= 0) {
+		/* Keep a buffer allocated before the compositor resizes the window. */
+		ack = 'a';
+		assert(write(synchronize_fd, &ack, 1) == 1);
+		assert(read(synchronize_fd, &ack, 1) == 1 && ack == 'a');
+		for (x = 0; x < 3; x++) assert(wl_display_roundtrip(display) >= 0);
+	}
 	ext_image_copy_capture_frame_v1_capture(frame);
 	while (!ready) assert(wl_display_dispatch(display) >= 0);
-	for (y = 0; y < cast->height; y++)
-		for (x = 0; x < cast->width; x++) {
+	if (ready < 0) {
+		pixels.width = 0;
+		goto done;
+	}
+	for (y = 0; y < pixels.height; y++)
+		for (x = 0; x < pixels.width; x++) {
 			uint32_t color = 0;
-			memcpy(&color, data + (y * cast->width + x) * bpp, bpp);
+			memcpy(&color, data + (y * pixels.width + x) * bpp, bpp);
 			color &= 0xffffff;
-			if (cast->format == WL_SHM_FORMAT_ABGR8888 || cast->format == WL_SHM_FORMAT_XBGR8888 ||
-					cast->format == WL_SHM_FORMAT_BGR888)
+			if (format == WL_SHM_FORMAT_ABGR8888 || format == WL_SHM_FORMAT_XBGR8888 ||
+					format == WL_SHM_FORMAT_BGR888)
 				color = ((color & 0xff) << 16) | (color & 0xff00) | ((color >> 16) & 0xff);
 			if (color == 0xff0000) {
 				pixels.red++;
@@ -286,12 +299,29 @@ snapshot(struct wl_display *display, struct test_cast *cast)
 			if (color == 0x00ff00)
 				pixels.green++;
 		}
+done:
 	ext_image_copy_capture_frame_v1_destroy(frame);
 	wl_buffer_destroy(buffer);
 	wl_shm_pool_destroy(pool);
 	munmap(data, size);
 	fclose(file);
 	return pixels;
+}
+
+static struct capture_pixels
+snapshot(struct wl_display *display, struct test_cast *cast, int synchronize_fd)
+{
+	struct capture_pixels pixels;
+	int tries, attempts = synchronize_fd < 0 ? 1 : 2;
+	for (tries = 0; tries < attempts; tries++) {
+		pixels = snapshot_once(display, cast, synchronize_fd);
+		if (pixels.width)
+			return pixels;
+		result.retries++;
+		synchronize_fd = -1;
+		assert(wl_display_roundtrip(display) >= 0);
+	}
+	abort();
 }
 
 int
@@ -339,6 +369,13 @@ capture_test_client(int socket_fd, int control_fd)
 			separate.session = ext_image_copy_capture_cursor_session_v1_get_capture_session(pointer);
 			ext_image_copy_capture_session_v1_add_listener(separate.session, &cast_listener, &separate);
 		}
+		if (command == 'a') {
+			result.retries = 0;
+			result.painted = snapshot(display, &painted, control_fd);
+			result.clean = snapshot(display, &clean, -1);
+			result.pointer = snapshot(display, &separate, -1);
+			assert(write(control_fd, &result, sizeof(result)) == sizeof(result));
+		}
 		if (command == 't') {
 			xdg_toplevel_destroy(primary.toplevel);
 			xdg_surface_destroy(primary.xdg);
@@ -354,9 +391,9 @@ capture_test_client(int socket_fd, int control_fd)
 		}
 		for (i = 0; i < 3; i++) assert(wl_display_roundtrip(display) >= 0);
 		if (command == 'c' || command == 's' || command == 'v') {
-			result.painted = snapshot(display, &painted);
-			result.clean = snapshot(display, &clean);
-			result.pointer = snapshot(display, &separate);
+			result.painted = snapshot(display, &painted, -1);
+			result.clean = snapshot(display, &clean, -1);
+			result.pointer = snapshot(display, &separate, -1);
 			assert(write(control_fd, &result, sizeof(result)) == sizeof(result));
 		}
 		if (command == 't')
