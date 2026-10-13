@@ -909,12 +909,14 @@ debugstate(const Arg *arg)
 		fprintf(f, "client %d: appid=\"%s\" title=\"%s\"\n", client_count, appid, title);
 		fprintf(f, "  type: %s\n", c->type == XDGShell ? "xdg" : c->type == X11 ? "x11" : "unknown");
 		fprintf(f, "  geom: x=%d y=%d w=%d h=%d\n", c->geom.x, c->geom.y, c->geom.width, c->geom.height);
+		fprintf(f, "  floating content: w=%d h=%d saved=%d\n", c->float_width, c->float_height,
+				c->float_size_saved);
 		fprintf(f, "  prev: x=%d y=%d w=%d h=%d\n", c->prev.x, c->prev.y, c->prev.width, c->prev.height);
 		fprintf(f, "  mon: %s\n", cmon ? cmon->wlr_output->name : "(null)");
 		fprintf(f, "  vout: %s\n", cvout ? cvout->name : "(null)");
 		fprintf(f, "  ws: %s (id=%u)\n", c->ws ? c->ws->name : "(null)", c->ws ? c->ws->id : 0);
-		fprintf(f, "  isfullscreen: %d (mode=%d), isurgent: %d\n", c->isfullscreen, c->fullscreen_mode,
-				c->isurgent);
+		fprintf(f, "  isfullscreen: %d (mode=%d), isurgent: %d, isfloating: %d\n", c->isfullscreen,
+				c->fullscreen_mode, c->isurgent, c->isfloating);
 		fprintf(f, "  bw: %u, resize: %u\n", c->bw, c->resize);
 		fprintf(f, "  visible: %d\n", cmon && VISIBLEON(c, cmon));
 		fprintf(f, "  scene_node enabled: %d\n", c->scene->node.enabled);
@@ -1035,7 +1037,7 @@ placefloating(Client *c)
 	struct wlr_box area, geo;
 	VirtualOutput *vout;
 	const Layout *layout;
-	int header_height;
+	int header_height, max_width, max_height;
 
 	if (!c || !c->mon || !client_surface(c)->mapped)
 		return;
@@ -1054,14 +1056,27 @@ placefloating(Client *c)
 	}
 
 	geo = c->geom;
-	if (floating_window_width_factor > 0.0f && floating_window_width_factor <= 1.0f)
-		geo.width = MAX((int)(2 * c->bw + 1), (int)roundf(area.width * floating_window_width_factor));
-	if (floating_window_height_factor > 0.0f && floating_window_height_factor <= 1.0f)
-		geo.height = MAX((int)(2 * c->bw + 1), (int)roundf(area.height * floating_window_height_factor));
+	max_width = area.width;
+	max_height = area.height;
+	/* Configured factors cap the initial size, not a size chosen by the user. */
+	if (!c->float_size_saved) {
+		if (floating_window_width_factor > 0.0f && floating_window_width_factor <= 1.0f)
+			max_width = (int)roundf(area.width * floating_window_width_factor);
+		if (floating_window_height_factor > 0.0f && floating_window_height_factor <= 1.0f)
+			max_height = (int)roundf(area.height * floating_window_height_factor);
+	}
+	if (c->float_width > 0)
+		geo.width = c->float_width + 2 * (int)c->bw;
+	if (c->float_height > 0)
+		geo.height = c->float_height + 2 * (int)c->bw;
+	geo.width = MAX((int)(2 * c->bw + 1), MIN(geo.width, max_width));
+	geo.height = MAX((int)(2 * c->bw + 1), MIN(geo.height, max_height));
 	if (center_floating_windows) {
 		geo.x = area.x + (area.width - geo.width) / 2;
 		geo.y = area.y + (area.height - geo.height) / 2;
 	}
+	geo.x = MAX(area.x, MIN(geo.x, area.x + area.width - geo.width));
+	geo.y = MAX(area.y, MIN(geo.y, area.y + area.height - geo.height));
 
 	resize(c, geo, 0);
 }
@@ -1584,6 +1599,10 @@ mapnotify(struct wl_listener *listener, void *data)
 		wlr_log(WLR_ERROR, "failed to create image capture scene for client");
 
 	client_get_geometry(c, &c->geom);
+	if (c->float_width <= 0)
+		c->float_width = c->geom.width;
+	if (c->float_height <= 0)
+		c->float_height = c->geom.height;
 
 	/* Handle unmanaged clients first so we can return prior create borders */
 	if (client_is_unmanaged(c)) {
@@ -1996,13 +2015,20 @@ run(const char *startup_cmd)
 static void
 setfloating(Client *c, int floating)
 {
-	Client *p = client_get_parent(c);
+	Client *p;
 
 	if (!c || client_is_unmanaged(c) || c->isfullscreen)
 		return;
 	if (c->isfloating == floating)
 		return;
 
+	p = client_get_parent(c);
+	if (!floating) {
+		/* Save content dimensions before changing the floating border width. */
+		c->float_width = MAX(1, c->geom.width - 2 * (int)c->bw);
+		c->float_height = MAX(1, c->geom.height - 2 * (int)c->bw);
+		c->float_size_saved = true;
+	}
 	c->isfloating = floating;
 	updateborderwidth(c, floating);
 	updatebordercolor(c, c == focustop(selmon));

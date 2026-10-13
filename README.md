@@ -3,7 +3,7 @@
 wlroots-based Wayland compositor with virtual outputs and physical cursor continuity.
 Originally forked from dwl.
 
-`LOC: 8223 total, 3027 vwl.c`
+`LOC: 8249 total, 3051 vwl.c`
 
 ## Features
 
@@ -43,7 +43,7 @@ Originally forked from dwl.
 make
 ```
 
-Run `make check` to test child dialogs, fullscreen, workspace moves, display reconnects,
+Run `make check` to test floating sizes, child dialogs, fullscreen, workspace moves, display reconnects,
 keep-awake requests, and captured cursor pixels with separate headless
 compositors and Wayland test apps. The tests use
 temporary sockets and do not change your running desktop. They also require
@@ -135,6 +135,21 @@ workspace still enters fullscreen, removing its border and letting the app
 hide its own controls. Floating windows regain their original size when
 fullscreen ends. Opening another ordinary window in the same workspace exits
 monitor fullscreen; virtual fullscreen stays active.
+
+## Floating Window Sizes
+
+The first time a window switches from tiled to floating, vwl uses the app's
+initial content size, capped by the configured floating width/height factors
+and the current virtual output's usable area.
+
+When a floating window returns to tiling, vwl remembers its content size. The
+next switch to floating restores that size, shrinking it only if needed to fit
+the current usable area, including space reserved for tab headers. The size
+factors do not override this saved size. `center_floating_windows` still controls
+whether vwl centers the window when it floats.
+
+Each window keeps its saved size in memory until it closes. Fullscreen uses a
+separate saved rectangle; changing fullscreen modes does not replace this size.
 
 ## Child Dialogs
 

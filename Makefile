@@ -19,7 +19,7 @@ TOOLCFLAGS = -I. $(DWLDEVCFLAGS) $(CFLAGS)
 CLANG_FORMAT ?= clang-format
 FORMAT_SRCS = client.h ipc.c ipc.h plumbing.c util.c util.h vwl.c vwl.h vwlctl.c
 FORMAT_SRCS += physical.c tests/physical.c capture.c capture.h share.c share.h spawnrules.c spawnrules.h tabhdr.c tabhdr.h
-FORMAT_SRCS += tests/dialogs.c tests/output-rules.c tests/hit.c tests/fullscreen.c tests/fullscreen-client.c
+FORMAT_SRCS += tests/floating.c tests/dialogs.c tests/output-rules.c tests/hit.c tests/fullscreen.c tests/fullscreen-client.c
 FORMAT_SRCS += tests/workspaces.c tests/idle-inhibit.c tests/cursor.c tests/capture.c tests/capture-client.c tests/capture-result.h
 VWL_OBJS = physical.o capture.o vwl.o plumbing.o util.o ipc.o share.o spawnrules.o tabhdr.o ext-foreign-toplevel-list-v1-protocol.o \
 	ext-image-capture-source-v1-protocol.o vwl-vout-image-capture-source-unstable-v1-protocol.o
@@ -59,7 +59,8 @@ vwlctl: vwlctl.o util.o
 vwlctl.o: vwlctl.c ipc.h util.h
 	$(CC) $(CPPFLAGS) $(TOOLCFLAGS) -o $@ -c $<
 
-check: tests/dialogs-test tests/output-rules-test tests/hit-test tests/physical-test tests/fullscreen-test tests/workspaces-test tests/idle-inhibit-test tests/capture-test tests/cursor-test
+check: tests/floating-test tests/dialogs-test tests/output-rules-test tests/hit-test tests/physical-test tests/fullscreen-test tests/workspaces-test tests/idle-inhibit-test tests/capture-test tests/cursor-test
+	./tests/floating-test
 	./tests/dialogs-test
 	./tests/output-rules-test
 	./tests/fullscreen-test
@@ -90,6 +91,11 @@ tests/workspaces-test: tests/workspaces.o tests/fullscreen-client.o tests/xdg-sh
 	$(CC) tests/workspaces.o tests/fullscreen-client.o tests/xdg-shell-client-protocol.o tests/idle-inhibit-client-protocol.o \
 		$(filter-out vwl.o,$(VWL_OBJS)) $(LDFLAGS) $(LDLIBS) `$(PKG_CONFIG) --libs wayland-client` -o $@
 tests/workspaces.o: tests/workspaces.c vwl.o
+
+tests/floating-test: tests/floating.o tests/fullscreen-client.o tests/xdg-shell-client-protocol.o tests/idle-inhibit-client-protocol.o $(VWL_OBJS)
+	$(CC) tests/floating.o tests/fullscreen-client.o tests/xdg-shell-client-protocol.o tests/idle-inhibit-client-protocol.o \
+		$(filter-out vwl.o,$(VWL_OBJS)) $(LDFLAGS) $(LDLIBS) `$(PKG_CONFIG) --libs wayland-client` -o $@
+tests/floating.o: tests/floating.c vwl.o
 
 tests/dialogs-test: tests/dialogs.o tests/fullscreen-client.o tests/xdg-shell-client-protocol.o tests/idle-inhibit-client-protocol.o $(VWL_OBJS)
 	$(CC) tests/dialogs.o tests/fullscreen-client.o tests/xdg-shell-client-protocol.o tests/idle-inhibit-client-protocol.o \
@@ -190,7 +196,7 @@ update-loc:
 
 clean:
 	rm -f vwl vwlctl *.o *-protocol.h *-protocol.c
-	rm -f tests/dialogs-test tests/output-rules-test tests/fullscreen-test tests/workspaces-test tests/idle-inhibit-test tests/capture-test tests/cursor-test tests/physical-test tests/hit-test tests/*.o tests/*-protocol.h tests/*-protocol.c
+	rm -f tests/floating-test tests/dialogs-test tests/output-rules-test tests/fullscreen-test tests/workspaces-test tests/idle-inhibit-test tests/capture-test tests/cursor-test tests/physical-test tests/hit-test tests/*.o tests/*-protocol.h tests/*-protocol.c
 
 dist: clean
 	mkdir -p vwl-$(VERSION)

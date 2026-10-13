@@ -118,9 +118,11 @@ struct Client {
 	PendingSpawn *pending_spawn;
 	struct wl_list link;
 	struct wl_list flink;
-	struct wlr_box geom;   /* layout-relative, includes border */
-	struct wlr_box prev;   /* before entering fullscreen, includes border */
-	struct wlr_box bounds; /* only width and height are used */
+	struct wlr_box geom;	       /* layout-relative, includes border */
+	struct wlr_box prev;	       /* before entering fullscreen, includes border */
+	struct wlr_box bounds;	       /* only width and height are used */
+	int float_width, float_height; /* initial or last floating content size, without borders */
+	bool float_size_saved;	       /* true after leaving floating mode */
 	union {
 		struct wlr_xdg_surface *xdg;
 		struct wlr_xwayland_surface *xwayland;
