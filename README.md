@@ -3,7 +3,7 @@
 wlroots-based Wayland compositor with virtual outputs and physical cursor continuity.
 Originally forked from dwl.
 
-`LOC: 8249 total, 3051 vwl.c`
+`LOC: 8126 total, 1270 vwl.c`
 
 ## Features
 
@@ -43,13 +43,32 @@ Originally forked from dwl.
 make
 ```
 
-Run `make check` to test floating sizes, child dialogs, fullscreen, workspace moves, display reconnects,
+Run `make check` to test floating sizes, child dialogs, fullscreen, focus/tab order, workspace moves, display reconnects,
 keep-awake requests, and captured cursor pixels with separate headless
 compositors and Wayland test apps. The tests use
 temporary sockets and do not change your running desktop. They also require
 the `wayland-client` development files. The capture test uses software rendering
 by default; `VWL_TEST_RENDERER=gles2 ./tests/capture-test` checks the GPU renderer
 when a render device is available.
+
+## Source layout
+
+`vwl.c` owns window lifetimes, focus, floating/fullscreen behavior, and startup.
+The desktop features live in these files:
+
+| File | Owns |
+| --- | --- |
+| `workspace.c` | Workspaces, virtual outputs, and workspace moves |
+| `output.c` | Monitor discovery, removal, screen geometry, and monitor focus |
+| `cursor.c` | Pointer motion, window dragging, and physical screen crossings |
+| `layout.c` | Tiled/tabbed layouts and tab order |
+| `debug.c` | The human-readable state dump |
+| `plumbing.c` | Wayland callbacks, input devices, layers, and session locks |
+
+`vwl.h` declares the shared types and functions, grouped by source file.
+The desktop modules read small views of `config.h`; the user configuration format
+is unchanged. `tests/compositor.h` supplies the private compositor and client
+process helpers used by the integration tests.
 
 ## Running
 

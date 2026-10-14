@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <wayland-server-core.h>
 #include <wlr/types/wlr_output.h>
+#include <wlr/types/wlr_output_layout.h>
 #include <wlr/types/wlr_ext_foreign_toplevel_list_v1.h>
 #include <wlr/types/wlr_fractional_scale_v1.h>
 #include <wlr/types/wlr_output_management_v1.h>
@@ -330,7 +331,28 @@ struct SessionLock {
 	struct wl_listener destroy;
 };
 
-/* Global variables - declarations (defined in plumbing.c) */
+/* Read-only views of config.h for the desktop modules. */
+struct WorkspaceConfig {
+	const Layout *layouts;
+	size_t layout_count;
+	const VirtualOutputRule *rules;
+	size_t rule_count;
+};
+struct OutputConfig {
+	const MonitorRule *rules;
+	size_t rule_count;
+	const float *fullscreen_color;
+};
+struct CursorConfig {
+	int sloppy_focus, warp_to_vout, physical_gap_jumps;
+};
+extern const struct WorkspaceConfig workspace_config;
+extern const struct OutputConfig output_config;
+extern const struct CursorConfig cursor_config;
+extern struct wlr_box sgeom;
+extern bool vt_recovery_mode;
+
+/* Shared compositor state. */
 extern struct wl_display *dpy;
 extern struct wl_event_loop *event_loop;
 extern struct wlr_backend *backend;
@@ -373,93 +395,141 @@ extern struct wlr_session_lock_v1 *cur_lock;
 extern struct wlr_xwayland *xwayland;
 #endif
 
-/* Helper functions from util.h */
-void *ecalloc(size_t nmemb, size_t size);
-void die(const char *fmt, ...);
+#include "client.h"
 
-/* Functions in plumbing.c */
-void handlesig(int signo);
-void cleanup(void);
-void cleanuplisteners(void);
-void destroykeyboardgroup(struct wl_listener *listener, void *data);
-void axisnotify(struct wl_listener *listener, void *data);
-void buttonpress(struct wl_listener *listener, void *data);
-void cursorframe(struct wl_listener *listener, void *data);
-void motionrelative(struct wl_listener *listener, void *data);
-void motionabsolute(struct wl_listener *listener, void *data);
-void gpureset(struct wl_listener *listener, void *data);
-void inputdevice(struct wl_listener *listener, void *data);
-void createidleinhibitor(struct wl_listener *listener, void *data);
-void update_fullscreen_idle_inhibit(void);
-void virtualkeyboard(struct wl_listener *listener, void *data);
-void virtualpointer(struct wl_listener *listener, void *data);
-void requeststartdrag(struct wl_listener *listener, void *data);
-void requestmonstate(struct wl_listener *listener, void *data);
-void setcursor(struct wl_listener *listener, void *data);
-void setcursorshape(struct wl_listener *listener, void *data);
-void setsel(struct wl_listener *listener, void *data);
-void setpsel(struct wl_listener *listener, void *data);
-void startdrag(struct wl_listener *listener, void *data);
-void createpointerconstraint(struct wl_listener *listener, void *data);
-void createpopup(struct wl_listener *listener, void *data);
-int keybinding(uint32_t mods, xkb_keysym_t sym);
-void keypress(struct wl_listener *listener, void *data);
-void keypressmod(struct wl_listener *listener, void *data);
-int keyrepeat(void *data);
-void outputmgrapply(struct wl_listener *listener, void *data);
-void outputmgrapplyortest(struct wlr_output_configuration_v1 *config, int test);
-void outputmgrtest(struct wl_listener *listener, void *data);
-void pointerfocus(Client *c, struct wlr_surface *surface, double sx, double sy, uint32_t time);
-void rendermon(struct wl_listener *listener, void *data);
-void createlayersurface(struct wl_listener *listener, void *data);
-void createlocksurface(struct wl_listener *listener, void *data);
-void powermgrsetmode(struct wl_listener *listener, void *data);
-void createdecoration(struct wl_listener *listener, void *data);
-void locksession(struct wl_listener *listener, void *data);
-void commitpopup(struct wl_listener *listener, void *data);
-void cursorconstrain(struct wlr_pointer_constraint_v1 *constraint);
-void cursorwarptohint(void);
-void cursorinteg(double dx, double dy);
-int cursorgap(Monitor *origin, double prev_mm_x, double prev_mm_y);
-void destroylock(SessionLock *lock, int unlock);
-void arrangelayer(Monitor *m, struct wl_list *list, struct wlr_box *usable_area, int exclusive);
+extern struct wl_listener cursor_axis;
+extern struct wl_listener cursor_button;
+extern struct wl_listener cursor_frame;
+extern struct wl_listener cursor_motion;
+extern struct wl_listener cursor_motion_absolute;
+extern struct wl_listener gpu_reset;
+extern struct wl_listener layout_change;
+extern struct wl_listener new_idle_inhibitor;
+extern struct wl_listener new_input_device;
+extern struct wl_listener new_virtual_keyboard;
+extern struct wl_listener new_virtual_pointer;
+extern struct wl_listener new_pointer_constraint;
+extern struct wl_listener new_output;
+extern struct wl_listener new_xdg_toplevel;
+extern struct wl_listener new_xdg_popup;
+extern struct wl_listener new_xdg_decoration;
+extern struct wl_listener new_layer_surface;
+extern struct wl_listener output_mgr_apply;
+extern struct wl_listener output_mgr_test;
+extern struct wl_listener output_power_mgr_set_mode;
+extern struct wl_listener request_activate;
+extern struct wl_listener request_cursor;
+extern struct wl_listener request_set_psel;
+extern struct wl_listener request_set_sel;
+extern struct wl_listener request_set_cursor_shape;
+extern struct wl_listener request_start_drag;
+extern struct wl_listener start_drag;
+extern struct wl_listener new_session_lock;
+#ifdef XWAYLAND
+extern struct wl_listener new_xwayland_surface, xwayland_ready;
+#endif
 
-/* Functions needed by plumbing.c from vwl.c */
-void cursorsync(void);
+/* vwl.c */
+void spawn_on_current_workspace(const Arg *arg);
+void arrange(Monitor *m);
+void createnotify(struct wl_listener *listener, void *data);
+void focusclient(Client *c, int lift);
+void focusstack(const Arg *arg);
+Client *focustop(Monitor *m);
+void killclient(const Arg *arg);
+void quit(const Arg *arg);
+void resize(Client *c, struct wlr_box geo, int interact);
+void togglefloating(const Arg *arg);
+void setworkspace(Client *c, Workspace *ws);
+void spawn(const Arg *arg);
+void spawn_on_workspace(const Arg *arg);
+void togglefullscreen(const Arg *arg);
+void urgent(struct wl_listener *listener, void *data);
 void xytonode(double x, double y, struct wlr_surface **psurface, Client **pc, LayerSurface **pl, double *nx,
 		double *ny);
-Monitor *xytomon(double x, double y);
-void motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double dy, double dx_unaccel,
-		double dy_unaccel);
-void focusclient(Client *c, int lift);
-Client *focustop(Monitor *m);
+void zoom(const Arg *arg);
+Client *focustopvout(VirtualOutput *vout);
+#ifdef XWAYLAND
+void createnotifyx11(struct wl_listener *listener, void *data);
+void xwaylandready(struct wl_listener *listener, void *data);
+#endif
+
+/* plumbing.c */
+void handlesig(int signo);
+void cleanup(void);
+void requestmonstate(struct wl_listener *listener, void *data);
+void setsel(struct wl_listener *listener, void *data);
+void rendermon(struct wl_listener *listener, void *data);
 void arrangelayers(Monitor *m);
-void arrangevout(Monitor *m, const struct wlr_box *usable_area);
-void arrange(Monitor *m);
-void commitlayersurfacenotify(struct wl_listener *listener, void *data);
-void unmaplayersurfacenotify(struct wl_listener *listener, void *data);
-void destroylayersurfacenotify(struct wl_listener *listener, void *data);
-void destroylocksurface(struct wl_listener *listener, void *data);
 void requestdecorationmode(struct wl_listener *listener, void *data);
-void destroydecoration(struct wl_listener *listener, void *data);
-void destroysessionlock(struct wl_listener *listener, void *data);
-void unlocksession(struct wl_listener *listener, void *data);
-void quit(const Arg *arg);
-VirtualOutput *focusedvout(Monitor *m);
-Monitor *monitorbyname(const char *name);
+void destroylocksurface(struct wl_listener *listener, void *data);
+void configurephys(Monitor *m, const MonitorRule *match);
+void updatephys(Monitor *m);
+void update_fullscreen_idle_inhibit(void);
+void checkidleinhibitor(struct wlr_surface *exclude);
+KeyboardGroup *createkeyboardgroup(void);
+void chvt(const Arg *arg);
+
+/* workspace.c */
+void workspaces_init(void);
+struct wlr_box voutarea(VirtualOutput *vout);
 Workspace *wsbyid(unsigned int id);
+VirtualOutput *firstvout(Monitor *m);
 VirtualOutput *voutbyid(unsigned int id);
 VirtualOutput *findvoutbyname(Monitor *m, const char *name);
-void setworkspace(Client *c, Workspace *ws);
 int ipc_set_workspace_by_id(unsigned int workspace_id);
 int ipc_focus_virtual_output(VirtualOutput *vout);
 int ipc_move_workspace_to_vout(Workspace *ws, VirtualOutput *vout);
-void configurephys(Monitor *m, const MonitorRule *match);
-void updatephys(Monitor *m);
-void updatephysorigins(void);
+VirtualOutput *focusedvout(Monitor *m);
+VirtualOutput *voutat(Monitor *m, double lx, double ly);
+void arrangevout(Monitor *m, const struct wlr_box *usable_area);
+VirtualOutput *createvout(Monitor *m, const char *name);
+void destroyvout(VirtualOutput *vout);
+Workspace *wsfindfree(void);
+void attachvoutworkspaces(VirtualOutput *vout, const unsigned int *workspace_ids, size_t workspace_count);
+void wssave(VirtualOutput *vout);
+Workspace *wsfirst(VirtualOutput *vout);
 void wsattach(VirtualOutput *vout, Workspace *ws);
+void wsactivate(VirtualOutput *vout, Workspace *ws, int focus_change);
+void wsmoveto(Workspace *ws, VirtualOutput *vout);
+void view(const Arg *arg);
+void moveworkspace(const Arg *arg);
+void tag(const Arg *arg);
+void tagmon(const Arg *arg);
+void focusvout(const Arg *arg);
 
-/* From client.h - might need to include this properly later */
-#include "client.h"
+/* cursor.c */
+void cursor_init(void);
+void cursorwarptovout(VirtualOutput *vout);
+void motionnotify(uint32_t time, struct wlr_input_device *device, double dx, double dy, double dx_unaccel,
+		double dy_unaccel);
+void moveresize(const Arg *arg);
+void cursorwarptohint(void);
+void cursorsync(void);
+
+/* output.c */
+void focusmon(const Arg *arg);
+void output_init(struct wlr_scene_rect *background);
+void createmon(struct wl_listener *listener, void *data);
+void updatemons(struct wl_listener *listener, void *data);
+Monitor *monitorbyname(const char *name);
+Monitor *dirtomon(enum wlr_direction dir);
+Monitor *dirtomonfrom(Monitor *from, enum wlr_direction dir);
+Monitor *xytomon(double x, double y);
+
+/* debug.c */
+void debugstate(const Arg *arg);
+
+/* layout.c */
+void tabbed(Monitor *m);
+void tile(Monitor *m);
+void tabmove(const Arg *arg);
+void setlayout(const Arg *arg);
+void setmfact(const Arg *arg);
+void toggletabbed(const Arg *arg);
+Client *focustoptiledvout(VirtualOutput *vout);
+
+/* physical.c */
+void updatephysorigins(void);
 
 #endif

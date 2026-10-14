@@ -1,36 +1,6 @@
 /* Exercise dialog placement with actual mapped Wayland windows.
  * Include vwl.c to reach static functions without adding a test-only API. */
-#undef NDEBUG
-#define main vwl_main
-#include "../vwl.c"
-#undef main
-
-#include <assert.h>
-#include <sys/socket.h>
-
-int fullscreen_test_client(int socket_fd, int control_fd);
-
-static void
-pump(void)
-{
-	wl_display_flush_clients(dpy);
-	assert(wl_event_loop_dispatch(event_loop, 5) >= 0);
-}
-
-static void
-client_command(int fd, char command)
-{
-	char reply;
-	ssize_t count;
-
-	if (command != 'r')
-		assert(write(fd, &command, 1) == 1);
-	while ((count = recv(fd, &reply, 1, MSG_DONTWAIT)) < 0) {
-		assert(errno == EAGAIN || errno == EWOULDBLOCK);
-		pump();
-	}
-	assert(count == 1 && reply == command);
-}
+#include "compositor.h"
 
 static Client *
 dialog_for(Client *parent)
@@ -85,61 +55,40 @@ int
 main(void)
 {
 	char runtime[] = "/tmp/vwl-dialogs-XXXXXX";
-	int sockets[2], control[2], status, bw;
-	pid_t child;
+	int bw;
+	struct TestClient app;
 	Client *parent, *dialog;
 	Monitor *m;
 	VirtualOutput *vout;
 	struct wlr_box area, moved;
 
 	check_x11_policy();
-	assert(mkdtemp(runtime));
-	assert(setenv("XDG_RUNTIME_DIR", runtime, 1) == 0);
-	assert(setenv("WLR_BACKENDS", "headless", 1) == 0);
-	assert(setenv("WLR_HEADLESS_OUTPUTS", "2", 1) == 0);
-	assert(setenv("WLR_RENDERER", "pixman", 1) == 0);
-	log_level = WLR_ERROR;
-	setup();
-	ipc_init();
-	assert(wlr_backend_start(backend));
-	signal(SIGCHLD, SIG_DFL);
-	alarm(20);
-	assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
-	assert(socketpair(AF_UNIX, SOCK_STREAM, 0, control) == 0);
-	child = fork();
-	assert(child >= 0);
-	if (child == 0) {
-		close(sockets[0]);
-		close(control[0]);
-		_exit(fullscreen_test_client(sockets[1], control[1]));
-	}
-	close(sockets[1]);
-	close(control[1]);
-	assert(wl_client_create(dpy, sockets[0]));
-	client_command(control[0], 'r');
+	test_setup(runtime, "2", NULL);
+	app = test_client_start(fullscreen_test_client, 20);
+	client_command(app.control, 'r');
 	parent = wl_container_of(clients.next, parent, link);
-	client_command(control[0], 'u');
+	client_command(app.control, 'u');
 	setfloating(parent, 1);
 	m = parent->mon;
 	vout = CLIENT_VOUT(parent);
 	area = vout->layout_geom;
 	resize(parent, (struct wlr_box){area.x + 100, area.y + 100, 600, 400}, 0);
-	client_command(control[0], 'p');
+	client_command(app.control, 'p');
 	dialog = dialog_for(parent);
 	bw = (int)dialog->bw;
 	expect_dialog(dialog, parent, area.x + 240 - bw, area.y + 180 - bw, 320, 240);
-	client_command(control[0], 'd');
+	client_command(app.control, 'd');
 
 	/* A shadow changes surface-local x/y, not the desired screen position. */
-	client_command(control[0], 's');
+	client_command(app.control, 's');
 	dialog = dialog_for(parent);
 	assert(dialog->surface.xdg->geometry.x == 12 && dialog->surface.xdg->geometry.y == 12);
 	expect_dialog(dialog, parent, area.x + 240 - bw, area.y + 180 - bw, 320, 240);
 	moved = (struct wlr_box){area.x + 25, area.y + 35, dialog->geom.width, dialog->geom.height};
 	resize(dialog, moved, 0);
-	client_command(control[0], 'c');
+	client_command(app.control, 'c');
 	assert(wlr_box_equal(&dialog->geom, &moved));
-	client_command(control[0], 'd');
+	client_command(app.control, 'd');
 
 	/* Use a different monitor with a negative origin and a split virtual screen. */
 	m = dirtomonfrom(m, WLR_DIRECTION_RIGHT);
@@ -156,29 +105,25 @@ main(void)
 
 	/* A small parent at either edge must not push the dialog off its screen. */
 	resize(parent, (struct wlr_box){area.x, area.y, 100, 100}, 0);
-	client_command(control[0], 's');
+	client_command(app.control, 's');
 	dialog = dialog_for(parent);
 	expect_dialog(dialog, parent, area.x, area.y, 320, 240);
-	client_command(control[0], 'd');
+	client_command(app.control, 'd');
 	resize(parent, (struct wlr_box){area.x + area.width - 100, area.y + area.height - 100, 100, 100}, 0);
-	client_command(control[0], 'p');
+	client_command(app.control, 'p');
 	dialog = dialog_for(parent);
 	expect_dialog(dialog, parent, area.x + area.width - 320 - 2 * bw, area.y + area.height - 240 - 2 * bw, 320,
 			240);
-	client_command(control[0], 'd');
+	client_command(app.control, 'd');
 
 	/* Keep an oversized dialog's requested size and expose its top-left corner. */
-	client_command(control[0], 'o');
+	client_command(app.control, 'o');
 	dialog = dialog_for(parent);
 	expect_dialog(dialog, parent, area.x, area.y, 2000, 1500);
-	client_command(control[0], 'd');
+	client_command(app.control, 'd');
 
-	close(control[0]);
-	while (!wl_list_empty(&clients)) pump();
-	assert(waitpid(child, &status, 0) == child);
-	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
-	cleanup();
-	assert(rmdir(runtime) == 0);
+	test_client_finish(app);
+	test_cleanup(runtime);
 	puts("dialogs: all compositor checks passed");
 	return 0;
 }

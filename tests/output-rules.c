@@ -3,6 +3,7 @@
 #define main vwl_main
 #include "../vwl.c"
 #undef main
+#include "../output.c"
 #include <assert.h>
 
 int

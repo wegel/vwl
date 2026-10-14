@@ -23,4 +23,6 @@ int tabhdr_header_height(void);
 void tabhdr_disable(VirtualOutput *vout);
 void tabhdr_update(Monitor *m, VirtualOutput *vout, struct wlr_box area, Client *active);
 
+struct wlr_box tabhdr_client_area(struct wlr_box area);
+
 #endif

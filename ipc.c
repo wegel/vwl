@@ -49,7 +49,6 @@ static int ipc_client_ready(int fd, uint32_t mask, void *data);
 static int ipc_send_line(IPCClient *client, const char *line);
 static int handle_request(IPCClient *client, const char *line);
 static int handle_client_buffer(IPCClient *client);
-void tabbed(Monitor *m);
 
 static const char *
 skip_ws(const char *p)
@@ -145,46 +144,6 @@ json_get_string(const char *json, const char *key, char *out, size_t out_sz)
 		return -1;
 	out[i] = '\0';
 	return 1;
-}
-
-static void
-json_write_escaped(FILE *fp, const char *value)
-{
-	const unsigned char *p = (const unsigned char *)(value ? value : "");
-
-	fputc('"', fp);
-	for (; *p; p++) {
-		switch (*p) {
-		case '"':
-			fputs("\\\"", fp);
-			break;
-		case '\\':
-			fputs("\\\\", fp);
-			break;
-		case '\b':
-			fputs("\\b", fp);
-			break;
-		case '\f':
-			fputs("\\f", fp);
-			break;
-		case '\n':
-			fputs("\\n", fp);
-			break;
-		case '\r':
-			fputs("\\r", fp);
-			break;
-		case '\t':
-			fputs("\\t", fp);
-			break;
-		default:
-			if (*p < 0x20)
-				fprintf(fp, "\\u%04x", *p);
-			else
-				fputc(*p, fp);
-			break;
-		}
-	}
-	fputc('"', fp);
 }
 
 static void

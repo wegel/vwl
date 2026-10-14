@@ -1,27 +1,5 @@
 /* Check cursor fragments on both sides of a physically arranged screen seam. */
-#undef NDEBUG
-#define main vwl_main
-#include "../vwl.c"
-#undef main
-
-#include <assert.h>
-#include <wlr/backend/headless.h>
-#include <wlr/backend/multi.h>
-
-static Monitor *
-add_monitor(const char *name)
-{
-	struct wlr_backend *headless = wlr_headless_backend_create(event_loop);
-	struct wlr_output *output;
-
-	assert(headless);
-	output = wlr_headless_add_output(headless, 1280, 720);
-	assert(output);
-	wlr_output_set_name(output, name);
-	assert(wlr_multi_backend_add(backend, headless));
-	assert(wlr_backend_start(headless));
-	return monitorbyname(name);
-}
+#include "compositor.h"
 
 static struct wlr_output_cursor *
 image(Monitor *m)
@@ -73,15 +51,7 @@ main(void)
 	struct wlr_output_cursor *i;
 	double before_y;
 
-	assert(mkdtemp(runtime));
-	assert(setenv("XDG_RUNTIME_DIR", runtime, 1) == 0);
-	assert(setenv("WLR_BACKENDS", "headless", 1) == 0);
-	assert(setenv("WLR_HEADLESS_OUTPUTS", "0", 1) == 0);
-	assert(setenv("WLR_RENDERER", "pixman", 1) == 0);
-	log_level = WLR_ERROR;
-	setup();
-	ipc_init();
-	assert(wlr_backend_start(backend));
+	test_setup(runtime, "0", NULL);
 	left = add_monitor("CURSOR-LEFT");
 	right = add_monitor("CURSOR-RIGHT");
 	assert(left && right);
@@ -253,8 +223,7 @@ main(void)
 	warp(300, 300);
 	motionnotify(11, NULL, 1, 1, 1, 1);
 	assert(cursor_phys.mon == left && cursor_phys.last_mon == left);
-	cleanup();
-	assert(rmdir(runtime) == 0);
+	test_cleanup(runtime);
 	puts("cursor: physical seams, gaps, scale, rotation and output removal passed");
 	return 0;
 }

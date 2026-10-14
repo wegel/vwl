@@ -1,53 +1,5 @@
 /* Exercise workspace moves and display reconnects with a mapped Wayland app. */
-#undef NDEBUG
-#define main vwl_main
-#include "../vwl.c"
-#undef main
-
-#include <assert.h>
-#include <sys/socket.h>
-#include <wlr/backend/headless.h>
-#include <wlr/backend/multi.h>
-
-int fullscreen_test_client(int socket_fd, int control_fd);
-
-static void
-pump(void)
-{
-	wl_display_flush_clients(dpy);
-	assert(wl_event_loop_dispatch(event_loop, 5) >= 0);
-}
-
-static void
-client_command(int fd, char command)
-{
-	char reply;
-	ssize_t count;
-
-	if (command != 'r')
-		assert(write(fd, &command, 1) == 1);
-	while ((count = recv(fd, &reply, 1, MSG_DONTWAIT)) < 0) {
-		assert(errno == EAGAIN || errno == EWOULDBLOCK);
-		pump();
-	}
-	assert(count == 1 && reply == command);
-}
-
-static Monitor *
-add_monitor(const char *name)
-{
-	struct wlr_backend *headless = wlr_headless_backend_create(event_loop);
-	struct wlr_output *output;
-
-	assert(headless);
-	output = wlr_headless_add_output(headless, 1280, 720);
-	assert(output);
-	wlr_output_set_name(output, name);
-	assert(wlr_multi_backend_add(backend, headless));
-	assert(wlr_backend_start(headless));
-	assert(monitorbyname(name));
-	return monitorbyname(name);
-}
+#include "compositor.h"
 
 static void
 expect_window(Client *c, Workspace *ws, Monitor *m)
@@ -77,8 +29,8 @@ int
 main(void)
 {
 	char runtime[] = "/tmp/vwl-workspaces-XXXXXX";
-	int sockets[2], control[2], status;
-	pid_t child;
+
+	struct TestClient app;
 	Client *c, *sibling;
 	Monitor *main_monitor, *left_monitor, *other_monitor;
 	VirtualOutput *main_vout, *left_vout;
@@ -86,15 +38,7 @@ main(void)
 	const unsigned int left_defaults[] = {1};
 	float saved_mfact;
 
-	assert(mkdtemp(runtime));
-	assert(setenv("XDG_RUNTIME_DIR", runtime, 1) == 0);
-	assert(setenv("WLR_BACKENDS", "headless", 1) == 0);
-	assert(setenv("WLR_HEADLESS_OUTPUTS", "0", 1) == 0);
-	assert(setenv("WLR_RENDERER", "pixman", 1) == 0);
-	log_level = WLR_ERROR;
-	setup();
-	ipc_init();
-	assert(wlr_backend_start(backend));
+	test_setup(runtime, "0", NULL);
 	main_monitor = add_monitor("TEST-MAIN");
 	left_monitor = add_monitor("TEST-LEFT");
 	main_vout = firstvout(main_monitor);
@@ -105,24 +49,11 @@ main(void)
 	wsattach(left_vout, ws);
 	assert(ipc_set_workspace_by_id(ws->id) == 0);
 
-	signal(SIGCHLD, SIG_DFL);
-	alarm(20);
-	assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
-	assert(socketpair(AF_UNIX, SOCK_STREAM, 0, control) == 0);
-	child = fork();
-	assert(child >= 0);
-	if (child == 0) {
-		close(sockets[0]);
-		close(control[0]);
-		_exit(fullscreen_test_client(sockets[1], control[1]));
-	}
-	close(sockets[1]);
-	close(control[1]);
-	assert(wl_client_create(dpy, sockets[0]));
-	client_command(control[0], 'r');
+	app = test_client_start(fullscreen_test_client, 20);
+	client_command(app.control, 'r');
 	assert(wl_list_length(&clients) == 1);
 	c = wl_container_of(clients.next, c, link);
-	client_command(control[0], 'u');
+	client_command(app.control, 'u');
 	expect_window(c, ws, left_monitor);
 	assert(ipc_move_workspace_to_vout(ws, main_vout) == 0);
 	expect_window(c, ws, main_monitor);
@@ -131,7 +62,7 @@ main(void)
 	attachvoutworkspaces(left_vout, left_defaults, LENGTH(left_defaults));
 	assert(ipc_set_workspace_by_id(ws->id) == 0);
 	expect_window(c, ws, main_monitor);
-	client_command(control[0], 'n');
+	client_command(app.control, 'n');
 	assert(wl_list_length(&clients) == 2);
 	sibling = wl_container_of(clients.prev, sibling, link);
 	assert(sibling != c);
@@ -186,12 +117,8 @@ main(void)
 	expect_window(c, ws, other_monitor);
 	assert(!ws->was_orphaned);
 
-	close(control[0]);
-	while (!wl_list_empty(&clients)) pump();
-	assert(waitpid(child, &status, 0) == child);
-	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
-	cleanup();
-	assert(rmdir(runtime) == 0);
+	test_client_finish(app);
+	test_cleanup(runtime);
 	puts("workspaces: all compositor checks passed");
 	return 0;
 }

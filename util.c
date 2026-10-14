@@ -51,3 +51,43 @@ fd_set_nonblock(int fd)
 
 	return 0;
 }
+
+void
+json_write_escaped(FILE *fp, const char *value)
+{
+	const unsigned char *p = (const unsigned char *)(value ? value : "");
+
+	fputc('"', fp);
+	for (; *p; p++) {
+		switch (*p) {
+		case '"':
+			fputs("\\\"", fp);
+			break;
+		case '\\':
+			fputs("\\\\", fp);
+			break;
+		case '\b':
+			fputs("\\b", fp);
+			break;
+		case '\f':
+			fputs("\\f", fp);
+			break;
+		case '\n':
+			fputs("\\n", fp);
+			break;
+		case '\r':
+			fputs("\\r", fp);
+			break;
+		case '\t':
+			fputs("\\t", fp);
+			break;
+		default:
+			if (*p < 0x20)
+				fprintf(fp, "\\u%04x", *p);
+			else
+				fputc(*p, fp);
+			break;
+		}
+	}
+	fputc('"', fp);
+}

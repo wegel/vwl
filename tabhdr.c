@@ -1,3 +1,4 @@
+#include "util.h"
 #include "tabhdr.h"
 
 #include <cairo.h>
@@ -397,4 +398,17 @@ tabhdr_update(Monitor *m, VirtualOutput *vout, struct wlr_box area, Client *acti
 		x += w;
 		idx++;
 	}
+}
+
+/* Reserve the header only when at least one row remains for the window. */
+struct wlr_box
+tabhdr_client_area(struct wlr_box area)
+{
+	int height = tabhdr_header_height();
+	if (height > 0 && area.height > height) {
+		area.height -= height;
+		if (tabhdr_position_value() == TABHDR_TOP)
+			area.y += height;
+	}
+	return area;
 }
